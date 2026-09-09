@@ -1,10 +1,11 @@
 # agent-commerce — Pending
 
 Working checklist tracked alongside the code. `[x]` done, `[~]` partial, `[ ]` open.
-Milestones §1–§6 are complete. **Full ZK keygen is no longer blocked** (601MB ->
-57MB) and **reputation is now both sound and private** — earned through settled
-escrows, and unlinkable to the seller. `TxAssembler` is the one seam left; the
-solution is known (see midnight1).
+Milestones §1–§6 are complete, and so is transaction assembly. **Full ZK keygen
+is no longer blocked** (601MB -> 57MB), **reputation is both sound and private**
+— earned through settled escrows and unlinkable to the seller — and the app can
+build and prove real contract transactions. What has not happened is a run
+against a live network; see "Known gaps".
 
 ## Milestone status (plan.md)
 
@@ -115,8 +116,46 @@ Score so far: **6 milestones done (§1–§6).**
 - [x] SDK-free provider foundation — `providers.ts` (`FetchKeyMaterialProvider`, `queryContractState`)
 - [x] Demo panel note: settlement is DUST-paid by the wallet as relayer — no buyer↔seller edge on the fee tx (WalletPanel)
 - [x] Unit tests for fees / signing / submit pipeline / client orchestration — `submit.test.ts` (9 cases)
-- [ ] `TxAssembler` implementation — `midnight-js-contracts` 4.1.1 pins `compact-runtime` 0.16 vs our 0.19; either it catches up, or hand-roll via `ledger-v8`
-- [ ] `npm run sync:zk` to copy compiled keys into `public/zk/marketplace/` before a real proof
+- [x] **`TxAssembler` — DONE.** `src/lib/midnight/tx-assembler.ts` builds real
+  unproven ledger transactions for `deploy` and every circuit, on
+  `midnight-js-contracts` 5.0.0-beta.7 + `ledger-v9`. The version block was real
+  but is gone: 5.0.0-beta.7 depends on `compact-runtime` 0.19.0-rc.0, whose
+  dependency set is identical to our 0.19.0.
+  - The library does the parts that must be byte-exact with what the chain
+    re-derives — transcript partitioning, the `ContractCallPrototype`, and the
+    contract key location that embeds the deployed verifier key's hash.
+  - Proving is delegated to the **wallet** (`getProvingProvider`), not a
+    standalone proof server, which is why `submitCallTx` is not used.
+  - Repo converted to an npm workspace with a `compact-runtime` override, so
+    there is exactly one copy of the WASM runtime. Two copies means two sets of
+    classes and `instanceof` failures across the boundary.
+- [x] **Fixed: the proving step was wrong.** `submit.ts` handed the serialized
+  transaction to `ProvingProvider.prove()` and treated the result as a proven
+  transaction. `prove()` takes a proof *preimage*; the ledger drives it, once
+  per contract call, from `Transaction.prove()`.
+- [x] **Fixed: key locations were unparsed.** The wallet's prover is handed a
+  contract key location, not a circuit name — `FetchKeyMaterialProvider` would
+  have fetched it verbatim and 404'd, minutes into a proof, and only ever
+  against a live wallet.
+- [x] `npm run sync:zk` — copies keys + zkir into `public/zk/marketplace/`
+  (40 files, 57MB).
+- [x] **Proving verified for real.** `proof-server-provider.ts` is a
+  `ProvingProvider` backed by a self-hosted `midnight-proof-server`, so the most
+  expensive step no longer needs a human clicking through a browser extension.
+  `npm run proof-server:up && npm run test:prove`:
+  - `registerAgent` — 1.1s
+  - **`proveReputation` — 1.9s**, 4.9KB proven transaction. That number only
+    exists because the circuit went from a 64-slot fold (291MB key) to an
+    incremental aggregate (9.5MB).
+- [x] Live entry point — `src/lib/midnight/live.ts`: `connectMarket()` builds a
+  `MarketClient` on the real assembler, `checkLiveReadiness()` pre-flights the
+  artifacts and the wallet's network. The assembler is imported lazily, so the
+  in-process demo fetches no WASM.
+- [ ] **Submit to a live network.** Assembly and proving are verified; balancing,
+  submission and confirmation are not. Those need the browser wallet: there is
+  no headless wallet for this stack (`@midnight-ntwrk/wallet` tops out at 5.0.0
+  on the old `zswap@4.0.0` architecture), so it needs tNIGHT, generated DUST,
+  and a human approving in the extension.
 
 ## App / infra
 - [x] Next 16 app builds (`next build`), `tsc --noEmit` clean, vitest wired (`npm test`)

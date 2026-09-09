@@ -24,6 +24,10 @@ export * from "./signing";
 export * from "./fees";
 export * from "./proof-server";
 export * from "./providers";
+// The on-chain path: real assembly, real proofs. `tx-assembler` is deliberately
+// NOT re-exported — it reaches the ledger and onchain-runtime WASM, and
+// `live.ts` imports it lazily so the in-process demo never pays for it.
+export * from "./live";
 export * from "./submit";
 export * from "./market-client";
 export * from "./badge";

@@ -3,7 +3,7 @@ import type { ConnectedAPI } from "@midnight-ntwrk/dapp-connector-api";
 import { defaultConfig } from "./config";
 import { readFeeState, assertCanPayFees, ESTIMATED_CALL_FEE } from "./fees";
 import { signMessage, agentChallenge } from "./signing";
-import { submitContractCall, type UnprovenCall } from "./submit";
+import { submitContractCall, type AssembledCall } from "./submit";
 import { MarketClient, type TxAssembler } from "./market-client";
 
 function fakeApi(over: Partial<Record<keyof ConnectedAPI, unknown>> = {}): ConnectedAPI {
@@ -21,6 +21,19 @@ function fakeApi(over: Partial<Record<keyof ConnectedAPI, unknown>> = {}): Conne
 }
 
 const config = defaultConfig("preprod");
+
+/** Stands in for an assembled call: records the prover it was handed. */
+function fakeCall(circuitId = "openEscrow", contractAddress = "0xcontract"): AssembledCall {
+  return {
+    circuitId,
+    contractAddress,
+    prove: async (provider) => {
+      const proof = await provider.prove(new TextEncoder().encode("TX"), circuitId);
+      return new TextDecoder().decode(proof);
+    },
+    serializeUnproven: () => "unproven:TX",
+  };
+}
 
 describe("fees", () => {
   it("reads balance / cap / headroom", async () => {
@@ -52,7 +65,7 @@ describe("signing", () => {
 });
 
 describe("submitContractCall", () => {
-  const call: UnprovenCall = { unprovenTx: "TX", circuitId: "openEscrow", contractAddress: "0xcontract" };
+  const call = fakeCall();
 
   it("runs prove → balance → submit → confirm in order", async () => {
     const api = fakeApi();
@@ -89,10 +102,10 @@ describe("MarketClient orchestration", () => {
 
     const seen: Array<{ circuit: string; args: unknown[]; persona: string }> = [];
     const assembler: TxAssembler = {
-      deploy: vi.fn(async () => ({ contractAddress: "0xnew", unproven: { unprovenTx: "d", circuitId: "constructor", contractAddress: "0xnew" } })),
+      deploy: vi.fn(async () => ({ ...fakeCall("constructor", "0xnew"), contractAddress: "0xnew", signingKey: "sk" })),
       call: vi.fn(async (_addr, circuit, args) => {
-        seen.push({ circuit, args, persona: "buyer" });
-        return { unprovenTx: "c", circuitId: circuit, contractAddress: "0xnew" };
+        seen.push({ circuit, args: [...args], persona: "buyer" });
+        return fakeCall(circuit, "0xnew");
       }),
     };
 

@@ -11,7 +11,7 @@
 import type { ConnectedAPI } from "@midnight-ntwrk/dapp-connector-api";
 import type { ServiceConfig } from "./config";
 import type { ProofProgress } from "./proof-server";
-import { submitContractCall, type SubmitResult, type UnprovenCall } from "./submit";
+import { submitContractCall, type AssembledCall, type SubmitResult } from "./submit";
 import { queryContractState } from "./providers";
 import { AgentStateManager, type AgentPrivateState, type Job, type Persona } from "./agent";
 
@@ -26,14 +26,29 @@ export type CircuitName =
   | "dispute"
   | "resolveDispute";
 
+/** What a deploy yields once assembled. */
+export type AssembledDeployment = AssembledCall & {
+  contractAddress: string;
+  signingKey: string;
+};
+
+/**
+ * Builds unproven contract transactions. Structural, so `market-client` does
+ * not import the ledger types; `MidnightTxAssembler` satisfies it.
+ */
 export interface TxAssembler {
-  deploy(arbiterPk: Uint8Array): Promise<{ contractAddress: string; unproven: UnprovenCall }>;
   call(
     contractAddress: string,
     circuit: CircuitName,
-    args: unknown[],
+    args: readonly unknown[],
     privateState: AgentPrivateState,
-  ): Promise<UnprovenCall>;
+  ): Promise<AssembledCall>;
+
+  /** `arbiterSecret` is the constructor argument: the deployer picks the arbiter. */
+  deploy(
+    arbiterSecret: Uint8Array,
+    privateState: AgentPrivateState,
+  ): Promise<AssembledDeployment>;
 }
 
 export type ReputationThresholds = { minJobs: bigint; minRateBps: bigint; minVolume: bigint };
