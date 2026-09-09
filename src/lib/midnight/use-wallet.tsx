@@ -48,7 +48,16 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    setAvailableWallets(listWallets().map((w) => w.info));
+    // `window.midnight` is injected by the extension, so it is external state:
+    // read it in a callback rather than on the effect's synchronous path (the
+    // extension may not have injected yet when the effect first runs).
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (!cancelled) setAvailableWallets(listWallets().map((w) => w.info));
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const disconnect = useCallback(() => {

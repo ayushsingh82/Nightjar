@@ -17,7 +17,7 @@ import {
   witnesses,
   type AgentPrivateState,
   type Job,
-} from "../src/witnesses.js";
+} from "../src/witnesses";
 
 const COIN_PK = "00".repeat(32);
 const ZERO32 = new Uint8Array(32);
@@ -51,6 +51,15 @@ export class MarketSim {
 
   get ledger(): Ledger {
     return ledger(this.state as never) as Ledger;
+  }
+
+  /**
+   * The serialized public contract state — byte-for-byte what an indexer would
+   * hand back for this contract. Everything the chain knows is in this string
+   * and nothing else is; the explorer panel renders it verbatim.
+   */
+  get publicState(): string {
+    return (this.state as { toString(compact?: boolean): string }).toString(true);
   }
 
   agentId(secret: Uint8Array): Uint8Array {

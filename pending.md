@@ -1,7 +1,8 @@
 # agent-commerce — Pending
 
 Working checklist tracked alongside the code. `[x]` done, `[~]` partial, `[ ]` open.
-Milestones §1, §2, §3, §4 are complete and pushed; §5 is a shell.
+Milestones §1–§6 are complete; the two blocked seams (`TxAssembler`, full ZK
+key generation) are unchanged and still open.
 
 ## Milestone status (plan.md)
 
@@ -34,11 +35,26 @@ Milestones §1, §2, §3, §4 are complete and pushed; §5 is a shell.
   builds a history that clears the badge; `npm run seed:seller`
   (`scripts/seed-seller.ts`) seeds it and proves it. `test/runtime.test.ts`
   (4 cases).
-- §5 UI — landing page + wallet-connect panel shipped; marketplace, seller/buyer
-  dashboards, badge flow, explorer panel not started.
-- §6 demo — not started.
+- **§5 UI — DONE.** `/console` hosts the marketplace (badge-only agent cards →
+  hire), the seller dashboard (private ledger, bond + commitment, threshold
+  proof → badge), the buyer dashboard (active escrows, deliver/release/dispute →
+  arbiter), the explorer (chain-sees vs actually-private, driven from live
+  ledger + witness state) and the demo runner. `ProofProgressView` is the render
+  half of the existing `ProofProgress` / `runWithProgress` primitives.
+- **§6 Demo — DONE (in-process).** A 12-step script runnable from the UI:
+  seed → badge → hire → deliver → release → re-prove → dispute → slash.
+  Asserted end to end in `src/lib/midnight/demo-market.test.ts`.
 
-Score so far: **4 milestones done (§1, §2, §3, §4), 1 in progress (§5 shell).**
+**How §5/§6 execute.** The generated contract loads its WASM through Node `fs`
+(`onchain-runtime-v4`'s `node` export condition), so circuits cannot run in a
+browser bundle. They run server-side in `src/lib/midnight/demo-market.ts`,
+driving the owner's `MarketSim` — real circuit execution, real ledger state,
+**unproven and never submitted**. The UI states this rather than implying a
+chain write (`EXECUTION_NOTICE` in the snapshot; `ProofProgressView` renders
+`balancing`/`submitting`/`confirming` as blocked on `TxAssembler`). The wallet
+panel remains the real DApp Connector surface and is untouched.
+
+Score so far: **6 milestones done (§1–§6).**
 
 ## Now
 - [x] Reputation ledger shape (Job{client,price,success}, LEDGER_CAP 64)
@@ -87,10 +103,21 @@ Score so far: **4 milestones done (§1, §2, §3, §4), 1 in progress (§5 shell
 - [x] Next 16 app builds (`next build`), `tsc --noEmit` clean, vitest wired (`npm test`)
 - [x] `WalletProvider` in `layout.tsx`; `@/lib/midnight` barrel export
 - [x] `src/lib/midnight/` unit tests (codec, encrypted store, two-persona managers, config, fees, signing, submit, client) — 21 cases
+- [x] `demo-market.test.ts` — 7 more cases: badge-from-thresholds, badge
+      staleness, escrow-id opacity, and the whole demo asserted against ledger
+      state (28 app tests total; contracts still 45)
 - [x] tsconfig `target` bumped to ES2020 (bigint), `contracts/` excluded from app typecheck
 - [x] repaired truncated `@next/swc-darwin-arm64` binary
 - [x] `tsx` + `contracts` script (`seed:seller`)
-- [ ] eslint pass over `src/lib/midnight/` (not yet run)
+- [x] eslint pass over `src/lib/midnight/` — run (`npm run lint`), clean. Fixed:
+      `react-hooks/set-state-in-effect` in `use-wallet.tsx` (and the same shape in
+      the new `use-market.tsx`), and added `contracts/src/managed/**` to
+      `globalIgnores` (compiler output, already gitignored)
+- [x] `@midnight-ntwrk/compact-runtime` added to the app's dependencies and
+      declared in `serverExternalPackages` — the app now executes circuits in its
+      Node runtime, and the WASM must not be bundled
+- [x] `contracts/src/managed/` must exist before `npm run build`
+      (`cd contracts && npm run compact:fast`, ~1 s) — it is gitignored
 
 ## Agent runtime
 - [x] `Agent` — identity secret + salt + private job ledger (`recordJob` / `seedLedger`) — `contracts/src/runtime.ts`
@@ -101,20 +128,46 @@ Score so far: **4 milestones done (§1, §2, §3, §4), 1 in progress (§5 shell
 
 ## UI
 - [x] Landing + connect — `page.tsx` + `WalletPanel` (address, DUST, proof-server status, privacy note)
-- [x] Proof progress primitives — `ProofProgress` / `runWithProgress` (render component still TODO)
-- [ ] Marketplace: agent list with ZK badge only
-- [ ] Hire → open + fund escrow
-- [ ] Seller dashboard: private job ledger view
-- [ ] Seller dashboard: bond + on-chain commitment
-- [ ] Seller: generate reputation proof → publish badge
-- [ ] Buyer dashboard: active escrows, deliver/release/dispute
-- [ ] Explorer panel (chain-sees vs actually-private)
+- [x] Proof progress primitives — `ProofProgress` / `runWithProgress`
+- [x] Proof progress render component — `ProofProgressView.tsx`; shows the two
+      phases this build runs and marks `balancing`/`submitting`/`confirming`
+      blocked on `TxAssembler` instead of faking them
+- [x] Server-side contract session — `src/lib/midnight/demo-market.ts` +
+      `src/app/api/market/route.ts`; wire types split into `market-types.ts`
+      (client-safe) so the browser bundle never pulls the contract in
+- [x] `MarketProvider` / `useMarket` — `use-market.tsx`, mirrors `use-wallet.tsx`
+- [x] Marketplace: agent list with ZK badge only — `Marketplace.tsx`. A card shows
+      the agent id, the on-chain bond and the badge. No client list, no prices, no
+      job count, no history
+- [x] Hire → open + fund escrow. `escrowId` is 32 CSPRNG bytes
+      (`randomEscrowId` in `contracts/src/runtime.ts`) — the contract cannot
+      enforce opacity, so a counter/name/price-derived id would hand an observer
+      the exact linkage this design removes
+- [x] Seller dashboard: private job ledger view — `SellerDashboard.tsx`, local only
+- [x] Seller dashboard: bond + on-chain commitment (+ stake, + re-commit)
+- [x] Seller: generate reputation proof → publish badge. The badge renders from
+      the **proven thresholds** (`badge.ts`), never from local stats, and goes
+      stale when the commitment it was checked against is superseded
+- [x] Buyer dashboard: active escrows, deliver/release/dispute — `BuyerDashboard.tsx`
+      (deliver runs as the seller agent; the circuit asserts the caller)
+- [x] Explorer panel (chain-sees vs actually-private) — `ExplorerPanel.tsx`:
+      public ledger field by field, the verbatim serialized contract state + its
+      SHA-256, every agent's witness ledger, a per-call ledger-write diff, and a
+      leak check that searches the real serialized state for the real private
+      values on every render
 
 ## Demo
-- [ ] Seed seller with strong private history
-- [ ] End-to-end: badge → hire → escrow → deliver → release
-- [ ] Explorer shows opaque settlement tx
-- [ ] Optional dispute → slash with no ledger leak
+- [x] Seed seller with strong private history — reuses `demoSellerLedger()`;
+      `newcomerSellerLedger()` added alongside it for the agent that *cannot*
+      clear the badge
+- [x] End-to-end: badge → hire → escrow → deliver → release — `DemoRunner.tsx`,
+      12 steps, runnable from `/console`
+- [~] Explorer shows an opaque settlement — the escrow ledger row, the serialized
+      state and the state digest are real and are shown next to what they do *not*
+      carry. There is no settlement **transaction**: submission is blocked on
+      `TxAssembler`, and the UI says so rather than inventing a tx hash
+- [x] Dispute → slash with no ledger leak — bond and `slashedTotal` move, the
+      failed job lands only in the seller's private ledger
 
 ## Open questions
 - [ ] Which Midnight wallet for the demo (Lace / other)?

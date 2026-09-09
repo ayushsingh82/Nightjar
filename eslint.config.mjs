@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Compiler output from `npm run compact:fast` — generated, gitignored, and
+    // not ours to style.
+    "contracts/src/managed/**",
   ]),
 ]);
 

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { WalletPanel } from "@/components/WalletPanel";
 
 export default function Home() {
@@ -13,9 +14,16 @@ export default function Home() {
             badge — no client list, no prices, no job history leaves the device.
           </p>
         </div>
+        <Link
+          href="/console"
+          className="w-full h-10 rounded-full bg-foreground text-background flex items-center justify-center text-sm"
+        >
+          Open the console
+        </Link>
         <WalletPanel />
-        <p className="text-xs text-zinc-500">
-          Marketplace, seller and buyer dashboards land next (plan.md §5).
+        <p className="text-xs text-zinc-500 text-center">
+          The console runs the marketplace, both dashboards, the chain-vs-private explorer
+          and the demo script against the compiled contract.
         </p>
       </main>
     </div>

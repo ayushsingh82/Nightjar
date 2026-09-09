@@ -55,8 +55,9 @@ contracts/                    Compact smart contract + tests
   test/                         in-memory simulator + behavioural & parity suites
 src/
   lib/midnight/                 Midnight integration layer (see below)
-  components/WalletPanel.tsx     wallet connect / status UI
-  app/                          Next.js App Router pages
+  components/                   wallet panel, marketplace, dashboards, explorer
+  app/console/                  the console (all of §5)
+  app/api/market/               server route the circuits run behind
 ```
 
 ### Contract (`contracts/`)
@@ -99,7 +100,11 @@ runtime (scripted job lifecycles, dispute → slash, badge seeding).
 | `providers` | SDK-free foundation: serves compiled ZK assets to the wallet's prover, reads contract state from the indexer |
 | `submit` | the `fee check → assemble → prove → balance → submit → confirm` pipeline |
 | `market-client` | `MarketClient` — one method per circuit, composing persona ledger + assembler + submit |
-| `use-wallet` | React `WalletProvider` / `useWallet()` |
+| `badge` | the marketplace badge, derived from the thresholds a proof actually used |
+| `market-types` | wire shape of a market snapshot (client-safe) |
+| `demo-market` | **server-only** — runs the compiled circuits and holds the session |
+| `use-wallet` | React `WalletProvider` / `useWallet()` — the wallet session |
+| `use-market` | React `MarketProvider` / `useMarket()` — the contract session |
 
 The buyer and seller agents run from one browser with separate identities and
 separately encrypted ledgers. `submit.ts` takes a `TxAssembler` — the one step
@@ -116,20 +121,40 @@ that still needs transaction assembly; `@midnight-ntwrk/midnight-js-contracts`
 | §2 Reputation circuit + parity | **Done** — TS reference + circuit parity |
 | §3 Wallet integration | **Done** — connector, two-persona encrypted state, signing, DUST fees, prove→pay→submit pipeline, `MarketClient` (21 app tests); one seam (`TxAssembler`) awaits a runtime-compatible SDK |
 | §4 Agent runtime | **Done** — `Agent`, scripted `runJob`/`runJobs`, `seed:seller` script that clears the badge (4 tests) |
-| §5 UI | Shell — landing + wallet panel; marketplace and dashboards pending |
-| §6 Demo | Not started |
+| §5 UI | **Done** — marketplace, seller + buyer dashboards, explorer, proof-progress component |
+| §6 Demo | **Done** — 12-step script runnable from `/console`, asserted end to end |
 
-**4 of 7 milestones complete; 1 in progress.**
+**6 of 7 milestones complete.**
+
+### How the UI executes circuits
+
+The generated contract loads its WASM through Node `fs`, so it cannot run in a
+browser bundle. The console therefore drives the circuits **server-side**
+(`src/lib/midnight/demo-market.ts` behind `/api/market`), on top of the same
+`MarketSim` the tests and `seed:seller` use. That means real circuit execution,
+real asserts and real ledger state — but **unproven**, and **not submitted**:
+
+- `proveReputation` at `LEDGER_CAP` 64 cannot be proven on a normal machine —
+  key generation succeeds but every proof attempt OOM-kills the proof server.
+- transaction assembly (`TxAssembler`) is still version-blocked.
+
+The UI says all of this on screen rather than implying otherwise: the console
+carries an execution notice, and the progress component renders
+`balancing` / `submitting` / `confirming` as blocked. The wallet panel is a real
+DApp Connector session and is unchanged.
 
 ---
 
 ## Getting started
 
 ```bash
+cd contracts && npm install && npm run compact:fast && cd ..   # required first:
+                                                              # src/managed/ is gitignored
 npm install
-npm run dev        # http://localhost:3000
-npm test           # wallet + private-state unit tests
+npm run dev        # http://localhost:3000  →  /console
+npm test           # 28 app tests, including the whole demo against ledger state
 npm run typecheck
+npm run lint
 npm run build
 ```
 
@@ -150,6 +175,7 @@ keys into `public/zk/marketplace/`.
 1. Resolve `LEDGER_CAP` / proof-time, then generate full proving keys.
 2. Bind each job leaf to an on-chain escrow receipt (removes the self-report gap).
 3. Implement `TxAssembler` (runtime-compatible `midnight-js-contracts`, or `ledger-v8`).
-4. Marketplace UI (ZK badge only), seller dashboard (ledger + badge generation), buyer dashboard (escrows).
-5. Real agent-to-agent messaging in the runtime (currently direct contract calls).
-6. Explorer panel — "what the chain sees" vs "what stays private".
+4. Real agent-to-agent messaging in the runtime (currently direct contract calls).
+5. Point the console's session at a deployed contract once 1–3 land — the
+   circuit calls, the private state and the explorer's reads are already in the
+   right shape.

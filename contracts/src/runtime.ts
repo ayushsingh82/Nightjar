@@ -8,9 +8,12 @@
 // Drives the in-memory simulator here; the same sequence runs against a
 // deployed contract once the wallet client (`src/lib/midnight`) is wired.
 
-import type { MarketSim } from "../test/simulator.js";
-import { agentState, job as mkJob } from "../test/simulator.js";
-import type { AgentPrivateState, Job } from "./witnesses.js";
+// TypeScript sources are imported without the `.js` extension (as in
+// reputation.ts) so the Next app can pull this module into its server bundle;
+// its bundler resolves `./x` to `./x.ts` but does not rewrite `./x.js`.
+import type { MarketSim } from "../test/simulator";
+import { agentState, job as mkJob } from "../test/simulator";
+import type { AgentPrivateState, Job } from "./witnesses";
 import { pureCircuits } from "./managed/marketplace/contract/index.js";
 
 export type AgentRole = "buyer" | "seller";
@@ -110,10 +113,28 @@ export async function runJobs(
   return out;
 }
 
+/** Deterministic escrow id — tests and fixtures only. Never use this for a real
+ *  escrow: see `randomEscrowId` for why a derived id is a privacy hole. */
 export function escrowId(n: number): Uint8Array {
   const b = new Uint8Array(32);
   new DataView(b.buffer).setUint32(0, n);
   return b;
+}
+
+/**
+ * The only escrow id a client should ever open with: 32 fresh CSPRNG bytes.
+ *
+ * `openEscrow` discloses the id, both agent ids and the amount — that is the
+ * design. What it cannot do is check where the id came from: the contract only
+ * asserts `!escrows.member(eid)`. So an id derived from a sequence number, a
+ * client name, a timestamp or the price is accepted by the chain and is exactly
+ * the linkage Midnight's metadata privacy exists to remove — a sequence number
+ * chains one buyer's escrows together, a name- or price-derived id lets an
+ * observer confirm a guess by recomputing the hash. Opaque randomness is the
+ * client's responsibility, and it is not optional.
+ */
+export function randomEscrowId(): Uint8Array {
+  return crypto.getRandomValues(new Uint8Array(32));
 }
 
 // ---------------------------------------------------------------------------
@@ -129,6 +150,21 @@ export function demoSellerLedger(clientCount = 40): Job[] {
   for (let i = 0; i < 55; i++) {
     const client = new Uint8Array(32).fill((i % clientCount) + 1);
     jobs.push(mkJob(client, 300n, i >= 2));
+  }
+  return jobs;
+}
+
+/**
+ * A newcomer's history — real, but nowhere near DEMO_BADGE. Used by the UI to
+ * show the other half of the guarantee: an agent whose ledger does not support
+ * the thresholds gets `false` out of the circuit and simply has no badge.
+ */
+export function newcomerSellerLedger(): Job[] {
+  const jobs: Job[] = [];
+  // 9 jobs, 1 failure -> 8/9 = 88.9%, volume 8 * 120 = 960
+  for (let i = 0; i < 9; i++) {
+    const client = new Uint8Array(32).fill(200 + (i % 8));
+    jobs.push(mkJob(client, 120n, i !== 3));
   }
   return jobs;
 }
