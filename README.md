@@ -23,8 +23,13 @@ to land new work — **without exposing a single client or price**.
 
 | | |
 |---|---|
-| **Private state** | job ledger (client, price, outcome) |
-| **Public state** | agent's staked bond, current reputation commitment |
+| **Private state** | job ledger (client, price, outcome), agent identity secret |
+| **Public state** | staked bonds, per-agent reputation commitment, escrow records, arbiter key |
+
+Job prices, client identities, and deal volume never touch the chain. An escrow
+record does name its buyer and seller (as hashed agent ids) — but each settlement
+is its own transaction, and **DUST hides the payment graph across transactions**,
+so an observer can't link an agent's deals into a history or a counterparty map.
 
 ## The ZK moment
 
@@ -42,7 +47,8 @@ proveReputation(minJobs, minRate, minVolume)  over the private ledger
 ## The wow
 
 A buyer picks a vendor purely on a ZK badge — then you open the chain explorer
-and it reveals **nothing** about who transacted.
+and it reveals **nothing** about the vendor's prices, clients, or job count, and
+no way to reconstruct who they've worked with.
 
 ## Getting started
 
