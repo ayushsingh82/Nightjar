@@ -26,6 +26,7 @@ import {
   randomEscrowId,
   type HistorySpec,
 } from "../../../contracts/src/runtime";
+import { newEscrowNonce } from "../../../contracts/src/witnesses";
 import type { PublishedBadge } from "./badge";
 import { toHex } from "./market-types";
 import type {
@@ -142,6 +143,14 @@ class MarketSession {
   private events: MarketEvent[] = [];
   /** agentId hex -> job index -> the escrow that produced that job. */
   private jobOrigins = new Map<string, Map<number, string>>();
+  /**
+   * Who each escrow's seller is, and the opening that proves it. Both are
+   * off-chain knowledge: the chain holds only `sellerCommit`. This session is a
+   * participant in every job it runs, so it knows — an observer would not, and
+   * that difference is the whole point of the commitment.
+   */
+  private escrowSellers = new Map<string, string>();
+  private escrowNonces = new Map<string, Uint8Array>();
   private seq = 0;
   private queue: Promise<unknown> = Promise.resolve();
 
@@ -162,6 +171,8 @@ class MarketSession {
     this.badges = new Map();
     this.events = [];
     this.jobOrigins = new Map();
+    this.escrowSellers = new Map();
+    this.escrowNonces = new Map();
     this.seq = 0;
   }
 
@@ -219,7 +230,13 @@ class MarketSession {
         break;
 
       case "dispute":
-        await this.sim.dispute(this.escrowBuyer(action.escrowId).secret, fromHex(action.escrowId));
+        // The buyer names the seller here — the one disclosure the design makes.
+        await this.sim.dispute(
+          this.escrowBuyer(action.escrowId).secret,
+          fromHex(action.escrowId),
+          this.escrowSeller(action.escrowId).id,
+          this.nonceFor(action.escrowId),
+        );
         break;
 
       case "resolveDispute":
@@ -267,6 +284,9 @@ class MarketSession {
           const hex = toHex(o.escrowId);
           sellerOrigins.set(sellerIndex++, hex);
           if (o.released) buyerOrigins.set(buyerIndex++, hex);
+          // The session arranged these too, so it knows who they were with.
+          this.escrowSellers.set(hex, toHex(o.sellerId));
+          this.escrowNonces.set(hex, o.nonce);
         }
         this.jobOrigins.set(sellerId, sellerOrigins);
         this.jobOrigins.set(buyerId, buyerOrigins);
@@ -309,12 +329,36 @@ class MarketSession {
     // Opaque, CSPRNG, 32 bytes — never derived from the pair, the price or a
     // counter. See `randomEscrowId` in contracts/src/runtime.ts.
     const eid = randomEscrowId();
-    await this.sim.openEscrow(buyer.secret, eid, seller.id, BigInt(action.amount));
+    // The opening both sides agree on off-chain. The chain sees the commitment.
+    const nonce = newEscrowNonce();
+    buyer.rememberNonce(eid, nonce);
+    seller.rememberNonce(eid, nonce);
+    this.rememberEscrow(eid, seller, nonce);
+
+    await this.sim.openEscrow(
+      buyer.secret,
+      eid,
+      this.sim.sellerCommitment(seller.id, nonce),
+      BigInt(action.amount),
+    );
+  }
+
+  /** Record the off-chain half of an escrow: who the seller is, and the opening. */
+  private rememberEscrow(escrowId: Uint8Array, seller: Agent, nonce: Uint8Array): void {
+    const hex = toHex(escrowId);
+    this.escrowSellers.set(hex, toHex(seller.id));
+    this.escrowNonces.set(hex, nonce);
+  }
+
+  private nonceFor(escrowIdHex: string): Uint8Array {
+    const nonce = this.escrowNonces.get(escrowIdHex);
+    if (!nonce) throw new Error(`no opening held for escrow ${escrowIdHex}`);
+    return nonce;
   }
 
   private async markDelivered(escrowIdHex: string): Promise<void> {
     const seller = this.escrowSeller(escrowIdHex);
-    await this.sim.markDelivered(seller.secret, fromHex(escrowIdHex));
+    await this.sim.markDelivered(seller.secret, fromHex(escrowIdHex), this.nonceFor(escrowIdHex));
   }
 
   /**
@@ -376,8 +420,14 @@ class MarketSession {
     return this.byAgentId(this.escrowRecord(escrowIdHex).buyer);
   }
 
+  /**
+   * The seller behind an escrow, from this session's own records — not from the
+   * chain, which only has a commitment.
+   */
   private escrowSeller(escrowIdHex: string): Agent {
-    return this.byAgentId(this.escrowRecord(escrowIdHex).seller);
+    const id = this.escrowSellers.get(escrowIdHex);
+    if (!id) throw new Error(`no seller known for escrow ${escrowIdHex}`);
+    return this.byAgentId(fromHex(id));
   }
 
   // --- views ---------------------------------------------------------
@@ -394,13 +444,20 @@ class MarketSession {
         agentId: toHex(id),
         commitment: toHex(c),
       })),
-      escrows: [...l.escrows].map(([eid, e]) => ({
-        escrowId: toHex(eid),
-        buyer: toHex(e.buyer),
-        seller: toHex(e.seller),
-        amount: e.amount.toString(),
-        state: ESCROW_STATES[e.state] ?? "EMPTY",
-      })),
+      escrows: [...l.escrows].map(([eid, e]) => {
+        const hex = toHex(eid);
+        return {
+          escrowId: hex,
+          buyer: toHex(e.buyer),
+          // What the chain actually stores.
+          sellerCommit: toHex(e.sellerCommit),
+          // What *this client* knows, because it arranged the job. An observer
+          // reading the same ledger gets null here.
+          seller: this.escrowSellers.get(hex) ?? null,
+          amount: e.amount.toString(),
+          state: ESCROW_STATES[e.state] ?? "EMPTY",
+        };
+      }),
       serialized,
       stateDigest: await sha256Hex(serialized),
     };

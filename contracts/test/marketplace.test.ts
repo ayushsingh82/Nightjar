@@ -4,7 +4,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { agentState, earnStats, MarketSim } from "./simulator.js";
-import { applySettlement } from "../src/witnesses.js";
+import { applySettlement, withEscrowNonce } from "../src/witnesses.js";
 import { EscrowState } from "../src/managed/marketplace/contract/index.js";
 
 const ARBITER = new Uint8Array(32).fill(1);
@@ -14,6 +14,11 @@ const BUYER = new Uint8Array(32).fill(3);
 const SALT = new Uint8Array(32).fill(9);
 
 const eid = (n: number) => new Uint8Array(32).fill(n);
+// One fixed opening for the lifecycle tests. The buyer commits to the seller
+// with it; the seller proves against it. Real clients use a fresh one per job.
+const NONCE = new Uint8Array(32).fill(0xa1);
+const commitTo = (sim: MarketSim, secret: Uint8Array) =>
+  sim.sellerCommitment(sim.agentId(secret), NONCE);
 
 describe("agent-commerce marketplace core", () => {
   let sim: MarketSim;
@@ -25,11 +30,11 @@ describe("agent-commerce marketplace core", () => {
   describe("escrow lifecycle", () => {
     it("runs the happy path FUNDED -> DELIVERED -> RELEASED", async () => {
       const e = eid(10);
-      await sim.openEscrow(BUYER, e, sim.agentId(SELLER), 1000n);
+      await sim.openEscrow(BUYER, e, commitTo(sim, SELLER), 1000n);
       expect(sim.ledger.escrows.lookup(e).state).toBe(EscrowState.FUNDED);
       expect(sim.ledger.escrowCount).toBe(1n);
 
-      await sim.markDelivered(SELLER, e);
+      await sim.markDelivered(SELLER, e, NONCE);
       expect(sim.ledger.escrows.lookup(e).state).toBe(EscrowState.DELIVERED);
 
       await sim.release(BUYER, e);
@@ -38,39 +43,72 @@ describe("agent-commerce marketplace core", () => {
 
     it("rejects a reused escrow id", async () => {
       const e = eid(11);
-      await sim.openEscrow(BUYER, e, sim.agentId(SELLER), 1000n);
-      await expect(sim.openEscrow(BUYER, e, sim.agentId(SELLER), 1n)).rejects.toThrow(/already used/);
+      await sim.openEscrow(BUYER, e, commitTo(sim, SELLER), 1000n);
+      await expect(sim.openEscrow(BUYER, e, commitTo(sim, SELLER), 1n)).rejects.toThrow(/already used/);
     });
 
-    it("rejects buyer == seller", async () => {
-      await expect(sim.openEscrow(BUYER, eid(12), sim.agentId(BUYER), 1000n)).rejects.toThrow(/must differ/);
+    it("rejects buyer == seller, at the point the seller proves who it is", async () => {
+      // `openEscrow` cannot see it any more — the seller is behind a
+      // commitment — so the check moved to where the opening is proven.
+      const e = eid(12);
+      await sim.openEscrow(BUYER, e, commitTo(sim, BUYER), 1000n);
+      await expect(sim.markDelivered(BUYER, e, NONCE)).rejects.toThrow(/must differ/);
+    });
+
+    it("an agent who is not the seller cannot open the commitment", async () => {
+      const e = eid(17);
+      await sim.openEscrow(BUYER, e, commitTo(sim, SELLER), 1000n);
+      const impostor = new Uint8Array(32).fill(77);
+      await expect(sim.markDelivered(impostor, e, NONCE)).rejects.toThrow(/only the seller/);
+    });
+
+    it("a dispute naming the wrong seller is refused", async () => {
+      const e = eid(18);
+      await sim.openEscrow(BUYER, e, commitTo(sim, SELLER), 1000n);
+      const notTheSeller = sim.agentId(new Uint8Array(32).fill(88));
+      await expect(sim.dispute(BUYER, e, notTheSeller, NONCE)).rejects.toThrow(
+        /does not open the escrow commitment/,
+      );
+    });
+
+    it("the escrow record does not carry the seller id", async () => {
+      const e = eid(19);
+      await sim.openEscrow(BUYER, e, commitTo(sim, SELLER), 1000n);
+      const record = sim.ledger.escrows.lookup(e);
+      const sellerId = sim.agentId(SELLER);
+      expect(record.buyer).toEqual(sim.agentId(BUYER));
+      expect(record.sellerCommit).not.toEqual(sellerId);
+      // And the id is nowhere in the serialized public state either.
+      expect(sim.publicState).not.toContain(
+        Array.from(sellerId, (b) => b.toString(16).padStart(2, "0")).join(""),
+      );
     });
 
     it("only the seller can mark delivered", async () => {
       const e = eid(13);
-      await sim.openEscrow(BUYER, e, sim.agentId(SELLER), 1000n);
-      await expect(sim.markDelivered(BUYER, e)).rejects.toThrow(/only the seller/);
+      await sim.openEscrow(BUYER, e, commitTo(sim, SELLER), 1000n);
+      await expect(sim.markDelivered(BUYER, e, NONCE)).rejects.toThrow(/only the seller/);
     });
 
     it("only the buyer can release", async () => {
       const e = eid(14);
-      await sim.openEscrow(BUYER, e, sim.agentId(SELLER), 1000n);
-      await sim.markDelivered(SELLER, e);
+      await sim.openEscrow(BUYER, e, commitTo(sim, SELLER), 1000n);
+      await sim.markDelivered(SELLER, e, NONCE);
       await expect(sim.release(SELLER, e)).rejects.toThrow(/only the buyer/);
     });
 
     it("cannot release before delivery", async () => {
       const e = eid(15);
-      await sim.openEscrow(BUYER, e, sim.agentId(SELLER), 1000n);
+      await sim.openEscrow(BUYER, e, commitTo(sim, SELLER), 1000n);
       await expect(sim.release(BUYER, e)).rejects.toThrow(/not delivered/);
     });
 
     it("cannot dispute a released escrow", async () => {
       const e = eid(16);
-      await sim.openEscrow(BUYER, e, sim.agentId(SELLER), 1000n);
-      await sim.markDelivered(SELLER, e);
+      await sim.openEscrow(BUYER, e, commitTo(sim, SELLER), 1000n);
+      await sim.markDelivered(SELLER, e, NONCE);
       await sim.release(BUYER, e);
-      await expect(sim.dispute(BUYER, e)).rejects.toThrow(/not disputable/);
+      await expect(sim.dispute(BUYER, e, sim.agentId(SELLER), NONCE)).rejects.toThrow(/not disputable/);
     });
   });
 
@@ -78,8 +116,8 @@ describe("agent-commerce marketplace core", () => {
     it("slashes the seller bond by the escrow amount on seller fault", async () => {
       await sim.stakeBond(SELLER, 5000n);
       const e = eid(20);
-      await sim.openEscrow(BUYER, e, sim.agentId(SELLER), 1200n);
-      await sim.dispute(BUYER, e);
+      await sim.openEscrow(BUYER, e, commitTo(sim, SELLER), 1200n);
+      await sim.dispute(BUYER, e, sim.agentId(SELLER), NONCE);
       await sim.resolveDispute(ARBITER, e, true);
 
       expect(sim.ledger.bonds.lookup(sim.agentId(SELLER))).toBe(3800n); // 5000 - 1200
@@ -90,8 +128,8 @@ describe("agent-commerce marketplace core", () => {
     it("caps the slash at the available bond when the bond is smaller", async () => {
       await sim.stakeBond(SELLER, 300n);
       const e = eid(21);
-      await sim.openEscrow(BUYER, e, sim.agentId(SELLER), 1000n);
-      await sim.dispute(BUYER, e);
+      await sim.openEscrow(BUYER, e, commitTo(sim, SELLER), 1000n);
+      await sim.dispute(BUYER, e, sim.agentId(SELLER), NONCE);
       await sim.resolveDispute(ARBITER, e, true);
 
       expect(sim.ledger.bonds.lookup(sim.agentId(SELLER))).toBe(0n);
@@ -101,8 +139,8 @@ describe("agent-commerce marketplace core", () => {
     it("does not slash when the seller is not at fault", async () => {
       await sim.stakeBond(SELLER, 5000n);
       const e = eid(22);
-      await sim.openEscrow(BUYER, e, sim.agentId(SELLER), 1000n);
-      await sim.dispute(BUYER, e);
+      await sim.openEscrow(BUYER, e, commitTo(sim, SELLER), 1000n);
+      await sim.dispute(BUYER, e, sim.agentId(SELLER), NONCE);
       await sim.resolveDispute(ARBITER, e, false);
 
       expect(sim.ledger.bonds.lookup(sim.agentId(SELLER))).toBe(5000n);
@@ -113,15 +151,15 @@ describe("agent-commerce marketplace core", () => {
     it("only the arbiter can resolve a dispute", async () => {
       await sim.stakeBond(SELLER, 5000n);
       const e = eid(23);
-      await sim.openEscrow(BUYER, e, sim.agentId(SELLER), 1000n);
-      await sim.dispute(BUYER, e);
+      await sim.openEscrow(BUYER, e, commitTo(sim, SELLER), 1000n);
+      await sim.dispute(BUYER, e, sim.agentId(SELLER), NONCE);
       await expect(sim.resolveDispute(NOT_ARBITER, e, true)).rejects.toThrow(/only the arbiter/);
       await expect(sim.resolveDispute(BUYER, e, true)).rejects.toThrow(/only the arbiter/);
     });
 
     it("cannot resolve an escrow that was never disputed", async () => {
       const e = eid(24);
-      await sim.openEscrow(BUYER, e, sim.agentId(SELLER), 1000n);
+      await sim.openEscrow(BUYER, e, commitTo(sim, SELLER), 1000n);
       await expect(sim.resolveDispute(ARBITER, e, true)).rejects.toThrow(/not disputed/);
     });
 
@@ -169,11 +207,14 @@ describe("agent-commerce marketplace core", () => {
       expect(await sim.proveReputation(ps, 4n, 7000n, 15_000n)).toBe(false);
 
       const eid = new Uint8Array(32).fill(210);
-      await sim.openEscrow(BUYER, eid, sim.agentId(SELLER), 5000n);
-      await sim.markDelivered(SELLER, eid);
+      await sim.openEscrow(BUYER, eid, commitTo(sim, SELLER), 5000n);
+      await sim.markDelivered(SELLER, eid, NONCE);
       await sim.release(BUYER, eid);
+      // The seller proves the opening again to record it, so its private state
+      // has to carry the nonce.
+      ps = withEscrowNonce(ps, eid, NONCE);
       await sim.updateReputation(ps, eid);
-      ps = agentState(SELLER, SALT, applySettlement(ps.stats, 5000n, true));
+      ps = agentState(SELLER, SALT, applySettlement(ps.stats, 5000n, true), ps.jobs, ps.escrowNonces);
 
       expect(await sim.proveReputation(ps, 4n, 7000n, 15_000n)).toBe(true); // 4 successes, vol 15,100
     });
@@ -209,29 +250,36 @@ describe("agent-commerce marketplace core", () => {
       });
       // Re-running the last settlement would double the seller's volume.
       const counted = [...sim.ledger.countedEscrows][0];
+      // `ps` already carries the opening for every escrow it earned.
       await expect(sim.updateReputation(ps, counted)).rejects.toThrow(/already counted/);
     });
 
     it("soundness: only the seller can record their own job", async () => {
-      const eid = new Uint8Array(32).fill(77);
+      const e3 = eid(77);
       await sim.registerAgent(agentState(SELLER, SALT));
       await sim.registerAgent(agentState(BUYER, SALT));
-      await sim.openEscrow(BUYER, eid, sim.agentId(SELLER), 1000n);
-      await sim.markDelivered(SELLER, eid);
-      await sim.release(BUYER, eid);
+      await sim.openEscrow(BUYER, e3, commitTo(sim, SELLER), 1000n);
+      await sim.markDelivered(SELLER, e3, NONCE);
+      await sim.release(BUYER, e3);
 
-      await expect(
-        sim.updateReputation(agentState(BUYER, SALT), eid),
-      ).rejects.toThrow(/only the seller can record this job/);
+      // The buyer holds the opening too — it still cannot pass, because the
+      // commitment is over the *seller's* id.
+      const buyerPs = withEscrowNonce(agentState(BUYER, SALT), e3, NONCE);
+      await expect(sim.updateReputation(buyerPs, e3)).rejects.toThrow(
+        /only the seller can record this job/,
+      );
     });
 
     it("soundness: an unsettled escrow cannot be counted", async () => {
-      const eid = new Uint8Array(32).fill(88);
-      const ps = agentState(SELLER, SALT);
+      const e4 = eid(88);
+      let ps = agentState(SELLER, SALT);
       await sim.registerAgent(ps);
-      await sim.openEscrow(BUYER, eid, sim.agentId(SELLER), 1000n);
-      await sim.markDelivered(SELLER, eid); // delivered, but not released
-      await expect(sim.updateReputation(ps, eid)).rejects.toThrow(/has not settled/);
+      await sim.openEscrow(BUYER, e4, commitTo(sim, SELLER), 1000n);
+      await sim.markDelivered(SELLER, e4, NONCE); // delivered, but not released
+      ps = withEscrowNonce(ps, e4, NONCE);
+      await expect(
+        sim.updateReputation(withEscrowNonce(ps, e4, NONCE), e4),
+      ).rejects.toThrow(/has not settled/);
     });
 
     it("rejects an out-of-range success rate", async () => {

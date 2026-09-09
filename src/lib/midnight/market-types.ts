@@ -34,7 +34,14 @@ export type EscrowStateName =
 export type ChainEscrow = {
   escrowId: string;
   buyer: string;
-  seller: string;
+  /** What the chain stores: `persistentCommit(sellerAgentId, nonce)`. */
+  sellerCommit: string;
+  /**
+   * The seller's agent id — known to this client because it arranged the job,
+   * and `null` to anyone who only has the ledger. The gap between this field
+   * and `sellerCommit` is what the commitment buys.
+   */
+  seller: string | null;
   amount: string;
   state: EscrowStateName;
 };

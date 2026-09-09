@@ -246,19 +246,28 @@ describe("market session — badge → hire → escrow → deliver → release",
     // rather than a privacy check.
     expect(snap.chain.serialized).not.toContain(nomad.ledgerSalt);
 
-    // What is NOT private, and this is a real limitation rather than an
-    // oversight: reputation is now earned through escrows, and an escrow record
-    // names its seller in the clear. So every job has an on-chain trace, and an
-    // observer can count a seller's settlements by filtering `escrows`.
-    //
-    // The fix is to store a commitment to the seller instead of the agent id,
-    // opened only on dispute — see the note in marketplace.compact. Until then
-    // this asserts the leak rather than pretending it away.
+    // Every job has an on-chain trace — reputation is earned through escrows —
+    // but the trace does not say who did the work.
     const settled = nomad.jobs.filter((j) => j.escrowId);
     expect(settled).toHaveLength(nomad.jobs.length);
     expect(settled.at(-1)!.escrowId).toBe(escrowId);
-    const publiclyCountable = snap.chain.escrows.filter((e) => e.seller === nomad.agentId);
-    expect(publiclyCountable.length).toBe(nomad.stats.totalJobs);
+
+    // An agent's id and bond are public by design — you can see that Nomad
+    // exists and what it staked. What you cannot do is attribute work to it.
+    // No escrow record carries a seller id...
+    for (const e of snap.chain.escrows) {
+      expect(e.sellerCommit).not.toBe(nomad.agentId);
+    }
+    // ...and because every escrow uses a fresh opening, two jobs by the same
+    // seller produce unrelated commitments. So an observer cannot even group
+    // escrows by seller, let alone count one seller's jobs.
+    const commits = snap.chain.escrows.map((e) => e.sellerCommit);
+    expect(new Set(commits).size).toBe(commits.length);
+
+    // This client can still resolve it, because it arranged the jobs. That is
+    // off-chain knowledge, not something the chain hands out.
+    const knownToUs = snap.chain.escrows.filter((e) => e.seller === nomad.agentId);
+    expect(knownToUs.length).toBe(nomad.stats.totalJobs);
   });
 
   it("refuses out-of-order lifecycle calls with the circuit's own assert", async () => {

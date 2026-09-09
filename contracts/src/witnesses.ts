@@ -35,6 +35,13 @@ export type AgentPrivateState = {
   stats: ReputationStats; // what the on-chain commitment is over
   jobs: Job[]; // local record; not a witness
   ledgerSalt: Uint8Array; // 32 bytes, binds the commitment
+  /**
+   * Openings for the seller commitments this agent is party to, keyed by escrow
+   * id (hex). Agreed off-chain when the job is arranged and held by both sides:
+   * the buyer needs it to build the commitment and to disclose on a dispute,
+   * the seller needs it to prove it is the seller at all.
+   */
+  escrowNonces: Record<string, Uint8Array>;
 };
 
 export const witnesses: Witnesses<AgentPrivateState> = {
@@ -52,7 +59,41 @@ export const witnesses: Witnesses<AgentPrivateState> = {
   ledgerSalt: (
     ctx: WitnessContext<AgentPrivateState>,
   ): [AgentPrivateState, Uint8Array] => [ctx.privateState, ctx.privateState.ledgerSalt],
+
+  escrowNonce: (
+    ctx: WitnessContext<AgentPrivateState>,
+    escrowId: Uint8Array,
+  ): [AgentPrivateState, Uint8Array] => {
+    const nonce = ctx.privateState.escrowNonces[toHexKey(escrowId)];
+    if (!nonce) {
+      // Failing here rather than returning zeros keeps the error legible: the
+      // circuit would otherwise just report that the caller is not the seller.
+      throw new Error(
+        `no escrow nonce held for ${toHexKey(escrowId)} — the opening is agreed off-chain when the job is arranged`,
+      );
+    }
+    return [ctx.privateState, nonce];
+  },
 };
+
+/** Key escrow nonces by the escrow id, as lowercase hex. */
+export function toHexKey(bytes: Uint8Array): string {
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Fresh 32-byte opening for a new escrow's seller commitment. */
+export function newEscrowNonce(): Uint8Array {
+  return crypto.getRandomValues(new Uint8Array(32));
+}
+
+/** Remember an opening on both sides of a job. */
+export function withEscrowNonce(
+  ps: AgentPrivateState,
+  escrowId: Uint8Array,
+  nonce: Uint8Array,
+): AgentPrivateState {
+  return { ...ps, escrowNonces: { ...ps.escrowNonces, [toHexKey(escrowId)]: nonce } };
+}
 
 /**
  * Apply one settled escrow to the aggregate, exactly as `updateReputation`
@@ -77,5 +118,11 @@ export function recordJob(ps: AgentPrivateState, job: Job): AgentPrivateState {
 }
 
 export function emptyPrivateState(secretKey: Uint8Array, salt: Uint8Array): AgentPrivateState {
-  return { callerSecret: secretKey, stats: { ...ZERO_STATS }, jobs: [], ledgerSalt: salt };
+  return {
+    callerSecret: secretKey,
+    stats: { ...ZERO_STATS },
+    jobs: [],
+    ledgerSalt: salt,
+    escrowNonces: {},
+  };
 }

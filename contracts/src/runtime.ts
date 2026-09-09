@@ -13,7 +13,15 @@
 // its bundler resolves `./x` to `./x.ts` but does not rewrite `./x.js`.
 import type { MarketSim } from "../test/simulator";
 import { agentState, job as mkJob } from "../test/simulator";
-import { applySettlement, ZERO_STATS, type AgentPrivateState, type Job, type ReputationStats } from "./witnesses";
+import {
+  applySettlement,
+  newEscrowNonce,
+  toHexKey,
+  ZERO_STATS,
+  type AgentPrivateState,
+  type Job,
+  type ReputationStats,
+} from "./witnesses";
 import { pureCircuits } from "./managed/marketplace/contract/index.js";
 
 export type AgentRole = "buyer" | "seller";
@@ -21,6 +29,8 @@ export type AgentRole = "buyer" | "seller";
 export class Agent {
   readonly secret: Uint8Array;
   readonly salt: Uint8Array;
+  /** Openings this agent holds, by escrow id hex. Shared with its counterparty. */
+  private nonces: Record<string, Uint8Array> = {};
   /** The aggregate the on-chain commitment is over. Advances only in lockstep
    *  with `updateReputation`; never edited directly. */
   private stats: ReputationStats = { ...ZERO_STATS };
@@ -44,7 +54,12 @@ export class Agent {
   }
 
   get privateState(): AgentPrivateState {
-    return agentState(this.secret, this.salt, this.stats, this.ledger);
+    return agentState(this.secret, this.salt, this.stats, this.ledger, this.nonces);
+  }
+
+  /** Both parties record the opening when the job is arranged. */
+  rememberNonce(escrowId: Uint8Array, nonce: Uint8Array): void {
+    this.nonces[toHexKey(escrowId)] = nonce;
   }
 
   get reputation(): ReputationStats {
@@ -88,6 +103,10 @@ export type JobOutcome = {
   price: bigint;
   released: boolean;
   disputed: boolean;
+  /** The seller this escrow was really with — off-chain knowledge. */
+  sellerId: Uint8Array;
+  /** The opening for its seller commitment, held by both parties. */
+  nonce: Uint8Array;
 };
 
 /**
@@ -109,8 +128,19 @@ export async function runJob(
     await sim.registerAgent(seller.privateState);
     seller.markRegistered();
   }
-  await sim.openEscrow(buyer.secret, spec.escrowId, seller.id, spec.price);
-  await sim.markDelivered(seller.secret, spec.escrowId);
+  // Arranged off-chain: one opening, held by both sides. The chain sees only
+  // the commitment, so nothing on it says who was hired.
+  const nonce = newEscrowNonce();
+  buyer.rememberNonce(spec.escrowId, nonce);
+  seller.rememberNonce(spec.escrowId, nonce);
+
+  await sim.openEscrow(
+    buyer.secret,
+    spec.escrowId,
+    sim.sellerCommitment(seller.id, nonce),
+    spec.price,
+  );
+  await sim.markDelivered(seller.secret, spec.escrowId, nonce);
 
   if (succeeds) {
     await sim.release(buyer.secret, spec.escrowId);
@@ -121,15 +151,31 @@ export async function runJob(
     // moved forward to match.
     await sim.updateReputation(seller.privateState, spec.escrowId);
     seller.settle(spec.price, true);
-    return { escrowId: spec.escrowId, price: spec.price, released: true, disputed: false };
+    return {
+      escrowId: spec.escrowId,
+      price: spec.price,
+      released: true,
+      disputed: false,
+      sellerId: seller.id,
+      nonce,
+    };
   }
 
-  await sim.dispute(buyer.secret, spec.escrowId);
+  // A dispute is the one place the seller is named — the buyer does it, and
+  // proves the name opens the escrow's commitment.
+  await sim.dispute(buyer.secret, spec.escrowId, seller.id, nonce);
   await sim.resolveDispute(arbiterSecret, spec.escrowId, true);
   seller.recordJob(mkJob(buyer.id, spec.price, false));
   await sim.updateReputation(seller.privateState, spec.escrowId);
   seller.settle(spec.price, false);
-  return { escrowId: spec.escrowId, price: spec.price, released: false, disputed: true };
+  return {
+    escrowId: spec.escrowId,
+    price: spec.price,
+    released: false,
+    disputed: true,
+    sellerId: seller.id,
+    nonce,
+  };
 }
 
 /** Run a sequence of jobs between the same pair. */

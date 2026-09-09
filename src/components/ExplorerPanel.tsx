@@ -139,8 +139,9 @@ function ChainColumn({ snapshot }: { snapshot: MarketSnapshot }) {
               >
                 <Hex value={e.escrowId} chars={32} />
                 <span className="text-zinc-500">
-                  buyer <Hex value={e.buyer} chars={10} /> · seller <Hex value={e.seller} chars={10} />{" "}
-                  · {money(e.amount)} · {e.state}
+                  buyer <Hex value={e.buyer} chars={10} /> · seller{" "}
+                  <Hex value={e.sellerCommit} chars={10} /> (commitment) · {money(e.amount)} ·{" "}
+                  {e.state}
                 </span>
               </div>
             ))}
@@ -264,8 +265,17 @@ function Settlement({ snapshot }: { snapshot: MarketSnapshot }) {
               buyer — <Hex value={settled.buyer} chars={14} /> (a hash, not an address)
             </li>
             <li>
-              seller — <Hex value={settled.seller} chars={14} /> (a hash, not an address)
+              seller — <Hex value={settled.sellerCommit} chars={14} /> (a{" "}
+              <em>commitment</em>, not an id: the chain cannot tell you who was hired, and
+              nor can it count how many jobs they have done)
             </li>
+            {settled.seller && (
+              <li className="text-zinc-500">
+                …which this client happens to know opens to{" "}
+                <Hex value={settled.seller} chars={14} /> — because it arranged the job.
+                An observer with only the ledger does not.
+              </li>
+            )}
             <li>amount — {money(settled.amount)}</li>
             <li>state — {settled.state}</li>
           </ul>

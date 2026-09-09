@@ -15,6 +15,8 @@ import {
 import {
   applySettlement,
   emptyPrivateState,
+  newEscrowNonce,
+  withEscrowNonce,
   witnesses,
   ZERO_STATS,
   type AgentPrivateState,
@@ -111,6 +113,8 @@ export class MarketSim {
    * the previous commitment was over — see `applySettlement`.
    */
   updateReputation(ps: AgentPrivateState, escrowId: Uint8Array) {
+    // `ps` must already hold this escrow's opening — the circuit re-proves the
+    // caller is the seller rather than reading a name off the record.
     return this.call(ps, (ctx) => this.contract.impureCircuits.updateReputation(ctx, escrowId));
   }
 
@@ -122,16 +126,26 @@ export class MarketSim {
 
   // --- escrow ------------------------------------------------------
 
-  openEscrow(buyerSecret: Uint8Array, escrowId: Uint8Array, seller: Uint8Array, amount: bigint) {
+  /** The buyer opens against a commitment to the seller, not the seller's id. */
+  openEscrow(
+    buyerSecret: Uint8Array,
+    escrowId: Uint8Array,
+    sellerCommit: Uint8Array,
+    amount: bigint,
+  ) {
     return this.call(emptyPrivateState(buyerSecret, ZERO32), (ctx) =>
-      this.contract.impureCircuits.openEscrow(ctx, escrowId, seller, amount),
+      this.contract.impureCircuits.openEscrow(ctx, escrowId, sellerCommit, amount),
     );
   }
 
-  markDelivered(sellerSecret: Uint8Array, escrowId: Uint8Array) {
-    return this.call(emptyPrivateState(sellerSecret, ZERO32), (ctx) =>
-      this.contract.impureCircuits.markDelivered(ctx, escrowId),
-    );
+  /** The commitment a buyer opens with, given the seller's id and their nonce. */
+  sellerCommitment(sellerId: Uint8Array, nonce: Uint8Array): Uint8Array {
+    return pureCircuits.sellerCommitment(sellerId, nonce);
+  }
+
+  markDelivered(sellerSecret: Uint8Array, escrowId: Uint8Array, nonce: Uint8Array) {
+    const ps = withEscrowNonce(emptyPrivateState(sellerSecret, ZERO32), escrowId, nonce);
+    return this.call(ps, (ctx) => this.contract.impureCircuits.markDelivered(ctx, escrowId));
   }
 
   release(buyerSecret: Uint8Array, escrowId: Uint8Array) {
@@ -140,10 +154,10 @@ export class MarketSim {
     );
   }
 
-  dispute(buyerSecret: Uint8Array, escrowId: Uint8Array) {
-    return this.call(emptyPrivateState(buyerSecret, ZERO32), (ctx) =>
-      this.contract.impureCircuits.dispute(ctx, escrowId),
-    );
+  /** Raising a dispute is where the buyer must name the seller. */
+  dispute(buyerSecret: Uint8Array, escrowId: Uint8Array, sellerId: Uint8Array, nonce: Uint8Array) {
+    const ps = withEscrowNonce(emptyPrivateState(buyerSecret, ZERO32), escrowId, nonce);
+    return this.call(ps, (ctx) => this.contract.impureCircuits.dispute(ctx, escrowId, sellerId));
   }
 
   resolveDispute(callerSecret: Uint8Array, escrowId: Uint8Array, sellerAtFault: boolean) {
@@ -159,8 +173,9 @@ export function agentState(
   salt: Uint8Array,
   stats: ReputationStats = { ...ZERO_STATS },
   jobs: Job[] = [],
+  escrowNonces: Record<string, Uint8Array> = {},
 ): AgentPrivateState {
-  return { callerSecret: secret, ledgerSalt: salt, stats, jobs };
+  return { callerSecret: secret, ledgerSalt: salt, stats, jobs, escrowNonces };
 }
 
 export function job(client: Uint8Array, price: bigint, success: boolean): Job {
@@ -198,16 +213,26 @@ export async function earnStats(
     crypto.getRandomValues(eid);
     eid[0] = i & 0xff; // keep ids distinct even if the RNG is stubbed
 
-    await sim.openEscrow(opts.buyer, eid, sellerId, j.price);
-    await sim.markDelivered(opts.seller, eid);
+    // The opening both sides agree on when the job is arranged.
+    const nonce = newEscrowNonce();
+    ps = withEscrowNonce(ps, eid, nonce);
+
+    await sim.openEscrow(opts.buyer, eid, sim.sellerCommitment(sellerId, nonce), j.price);
+    await sim.markDelivered(opts.seller, eid, nonce);
     if (j.success) {
       await sim.release(opts.buyer, eid);
     } else {
-      await sim.dispute(opts.buyer, eid);
+      await sim.dispute(opts.buyer, eid, sellerId, nonce);
       await sim.resolveDispute(opts.arbiter, eid, true);
     }
     await sim.updateReputation(ps, eid);
-    ps = agentState(opts.seller, opts.sellerSalt, applySettlement(ps.stats, j.price, j.success));
+    ps = agentState(
+      opts.seller,
+      opts.sellerSalt,
+      applySettlement(ps.stats, j.price, j.success),
+      ps.jobs,
+      ps.escrowNonces,
+    );
   }
   return ps;
 }

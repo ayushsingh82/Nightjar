@@ -8,10 +8,14 @@
 //   private (witness): agent identity secret, running reputation aggregate,
 //                      commitment salt
 //   public  (ledger) : staked bonds, per-agent reputation commitment, escrow
-//                      records, arbiter key, slashed total
-//   disclosed        : agent id (a hash), bond amounts, escrow amounts, and the
-//                      single boolean from proveReputation. Never a client,
-//                      a price, or the job count.
+//                      records (buyer, a COMMITMENT to the seller, amount,
+//                      state), arbiter key, slashed total
+//   disclosed        : the buyer, bond and escrow amounts, and the single
+//                      boolean from proveReputation. A seller\'s identity is
+//                      disclosed in exactly one case — a dispute, where the
+//                      buyer must name them so a bond can be slashed. Absent
+//                      that, a seller\'s job count, volume and success rate are
+//                      not derivable from the chain.
 //
 // Reputation is an INCREMENTAL AGGREGATE, not a replayed ledger.
 //
@@ -44,7 +48,13 @@ export enum EscrowState { EMPTY, FUNDED, DELIVERED, RELEASED, DISPUTED, SLASHED 
 
 struct EscrowRecord {
   buyer: Bytes<32>,
-  seller: Bytes<32>,
+  // NOT the seller's agent id — `persistentCommit(sellerAgentId, nonce)`, with
+  // the nonce agreed off-chain between the two parties. The seller proves the
+  // opening to act on the escrow, so the chain never learns which agent is
+  // behind it. Without this, reputation being escrow-bound would make a
+  // seller's job count and volume publicly countable, which is the one thing
+  // proveReputation exists to prevent.
+  sellerCommit: Bytes<32>,
   amount: Uint<64>,
   state: EscrowState
 }
@@ -75,6 +85,12 @@ export ledger slashedTotal: Uint<64>;
 // counted twice; the escrow id is public anyway, so this leaks nothing new.
 export ledger countedEscrows: Set<Bytes<32>>;
 
+// escrowId -> the seller id, disclosed by the buyer when raising a dispute.
+// Slashing has to name a bond, so accountability costs exactly one identity,
+// and only for escrows that actually went wrong. Everything settled amicably
+// stays behind its commitment.
+export ledger disputedSellers: Map<Bytes<32>, Bytes<32>>;
+
 // ---------------------------------------------------------------------------
 // Private (witness) inputs — bodies in contracts/src/witnesses.ts
 // ---------------------------------------------------------------------------
@@ -86,6 +102,10 @@ witness callerSecret(): Bytes<32>;
 witness reputationStats(): [Uint<64>, Uint<64>, Uint<64>];
 
 witness ledgerSalt(): Bytes<32>;
+
+// The opening for one escrow's seller commitment. Agreed off-chain when the job
+// is arranged; both parties hold it.
+witness escrowNonce(escrowId: Bytes<32>): Bytes<32>;
 
 // ---------------------------------------------------------------------------
 // Key derivation — unique domain separator per purpose
@@ -113,6 +133,11 @@ export pure circuit statsCommit(
     persistentHash<Uint<64>>(successes),
     persistentHash<Uint<64>>(volume)
   ], salt);
+}
+
+// Binds an escrow to a seller without naming them.
+export pure circuit sellerCommitment(agentId: Bytes<32>, nonce: Bytes<32>): Bytes<32> {
+  return persistentCommit<Bytes<32>>(agentId, nonce);
 }
 
 // ---------------------------------------------------------------------------
@@ -169,7 +194,12 @@ export circuit updateReputation(escrowId: Bytes<32>): [] {
   const e = escrows.lookup(eid);
 
   const id = disclose(agentIdFrom(callerSecret()));
-  assert(id == e.seller, "only the seller can record this job");
+  // Same opening proof as markDelivered: the caller is the escrow's seller, and
+  // the chain still does not learn that from the escrow record.
+  assert(
+    sellerCommitment(agentIdFrom(callerSecret()), escrowNonce(eid)) == e.sellerCommit,
+    "only the seller can record this job"
+  );
   assert(
     e.state == EscrowState.RELEASED || e.state == EscrowState.SLASHED,
     "escrow has not settled"
@@ -235,17 +265,21 @@ export circuit proveReputation(
 // Escrow with slashing
 // ---------------------------------------------------------------------------
 
-export circuit openEscrow(escrowId: Bytes<32>, seller: Bytes<32>, amount: Uint<64>): [] {
-  // escrow id, counterparties and amount are public by design.
+// The buyer opens against a *commitment* to the seller, built off-chain from
+// the seller's agent id and a nonce the two of them share. The escrow id, the
+// buyer and the amount stay public; who is being hired does not.
+export circuit openEscrow(escrowId: Bytes<32>, sellerCommit: Bytes<32>, amount: Uint<64>): [] {
   const eid = disclose(escrowId);
-  const sell = disclose(seller);
+  const commit = disclose(sellerCommit);
   const amt = disclose(amount);
   assert(!escrows.member(eid), "escrow id already used");
   const buyer = disclose(agentIdFrom(callerSecret()));
-  assert(buyer != sell, "buyer and seller must differ");
+  // A buyer hiring themselves would be caught here if the commitment were
+  // openable, which it is not — so the check moves to where the seller proves
+  // its opening, in markDelivered.
   // `amount` is transferred into escrow by the token layer (out of scope here).
   escrows.insert(eid, EscrowRecord {
-    buyer: buyer, seller: sell, amount: amt, state: EscrowState.FUNDED
+    buyer: buyer, sellerCommit: commit, amount: amt, state: EscrowState.FUNDED
   });
   escrowCount.increment(1);
 }
@@ -254,58 +288,53 @@ export circuit markDelivered(escrowId: Bytes<32>): [] {
   const eid = disclose(escrowId);
   assert(escrows.member(eid), "unknown escrow");
   const e = escrows.lookup(eid);
-  assert(disclose(agentIdFrom(callerSecret())) == e.seller, "only the seller can deliver");
+
+  // Proves the caller is the seller without saying who the seller is: only the
+  // agent whose id opens the commitment can satisfy this.
+  const me = agentIdFrom(callerSecret());
+  assert(
+    sellerCommitment(me, escrowNonce(eid)) == e.sellerCommit,
+    "only the seller can deliver"
+  );
+  assert(disclose(me != e.buyer), "buyer and seller must differ");
   assert(e.state == EscrowState.FUNDED, "escrow not in FUNDED state");
   escrows.insert(eid, EscrowRecord {
-    buyer: e.buyer, seller: e.seller, amount: e.amount, state: EscrowState.DELIVERED
+    buyer: e.buyer, sellerCommit: e.sellerCommit, amount: e.amount, state: EscrowState.DELIVERED
   });
 }
 
-// KNOWN LIMITATION — seller linkability.
-//
-// `EscrowRecord.seller` is the agent id in the clear, so anyone can filter
-// `escrows` by seller and count their settlements, read the amounts, and see
-// the outcomes. Now that reputation is earned through escrows rather than
-// self-reported, that makes a seller's job count and volume publicly derivable
-// — which is precisely what `proveReputation` exists to avoid disclosing.
-//
-// The two properties trade off, and only one design gets both:
-//   · self-reported ledger  -> private, but an agent can invent a history
-//   · escrow-bound (today)  -> sound, but the history is publicly countable
-//   · escrow-bound with a committed seller -> both
-//
-// The fix is to store `persistentCommit(sellerAgentId, escrowNonce)` in place
-// of `seller`, have the seller prove the opening in `markDelivered` and
-// `updateReputation` (no disclosure), and have the buyer disclose the opening
-// in `dispute` so the arbiter can still slash the right bond. Disputes would
-// then be the single place an identity surfaces — the same shape as
-// liquidation elsewhere.
-//
-// Asserted, not hand-waved: see the disclosure-surface case in
-// src/lib/midnight/demo-market.test.ts.
 export circuit release(escrowId: Bytes<32>): [] {
   const eid = disclose(escrowId);
   assert(escrows.member(eid), "unknown escrow");
   const e = escrows.lookup(eid);
   assert(disclose(agentIdFrom(callerSecret())) == e.buyer, "only the buyer can release");
   assert(e.state == EscrowState.DELIVERED, "escrow not delivered");
-  // funds -> seller (token layer).
-  // Production: also insert persistentHash([escrowId, buyer, seller, amount])
-  // into a `jobReceipts` Set so updateReputation can require each job leaf to
-  // correspond to a settled escrow.
+  // funds -> seller (token layer). The settled record is what `updateReputation`
+  // later folds into the seller's aggregate.
   escrows.insert(eid, EscrowRecord {
-    buyer: e.buyer, seller: e.seller, amount: e.amount, state: EscrowState.RELEASED
+    buyer: e.buyer, sellerCommit: e.sellerCommit, amount: e.amount, state: EscrowState.RELEASED
   });
 }
 
-export circuit dispute(escrowId: Bytes<32>): [] {
+// Raising a dispute is the single place a seller's identity becomes public, and
+// the buyer is the one who does it: slashing has to name a bond, so the buyer
+// discloses the seller and proves the disclosure opens the escrow's commitment.
+// A buyer cannot use this to smear an uninvolved agent — a wrong id fails the
+// opening check.
+export circuit dispute(escrowId: Bytes<32>, seller: Bytes<32>): [] {
   const eid = disclose(escrowId);
+  const sell = disclose(seller);
   assert(escrows.member(eid), "unknown escrow");
   const e = escrows.lookup(eid);
   assert(disclose(agentIdFrom(callerSecret())) == e.buyer, "only the buyer can dispute");
   assert(e.state == EscrowState.FUNDED || e.state == EscrowState.DELIVERED, "not disputable");
+  assert(
+    sellerCommitment(sell, escrowNonce(eid)) == e.sellerCommit,
+    "disclosed seller does not open the escrow commitment"
+  );
+  disputedSellers.insert(eid, sell);
   escrows.insert(eid, EscrowRecord {
-    buyer: e.buyer, seller: e.seller, amount: e.amount, state: EscrowState.DISPUTED
+    buyer: e.buyer, sellerCommit: e.sellerCommit, amount: e.amount, state: EscrowState.DISPUTED
   });
 }
 
@@ -319,18 +348,23 @@ export circuit resolveDispute(escrowId: Bytes<32>, sellerAtFault: Boolean): [] {
   const e = escrows.lookup(eid);
   assert(e.state == EscrowState.DISPUTED, "escrow not disputed");
 
+  // The seller was disclosed when the dispute was raised; that is the only way
+  // the arbiter knows which bond to slash.
+  assert(disputedSellers.member(eid), "no disclosed seller for this dispute");
+  const seller = disputedSellers.lookup(eid);
+
   if (fault) {
-    const sellerBond = bonds.member(e.seller) ? bonds.lookup(e.seller) : 0;
+    const sellerBond = bonds.member(seller) ? bonds.lookup(seller) : 0;
     const slash = sellerBond < e.amount ? sellerBond : e.amount;
-    bonds.insert(e.seller, (sellerBond - slash) as Uint<64>);
+    bonds.insert(seller, (sellerBond - slash) as Uint<64>);
     slashedTotal = (slashedTotal + slash) as Uint<64>;
     escrows.insert(eid, EscrowRecord {
-      buyer: e.buyer, seller: e.seller, amount: e.amount, state: EscrowState.SLASHED
+      buyer: e.buyer, sellerCommit: e.sellerCommit, amount: e.amount, state: EscrowState.SLASHED
     });
     // buyer refunded amount + slash by the token layer
   } else {
     escrows.insert(eid, EscrowRecord {
-      buyer: e.buyer, seller: e.seller, amount: e.amount, state: EscrowState.RELEASED
+      buyer: e.buyer, sellerCommit: e.sellerCommit, amount: e.amount, state: EscrowState.RELEASED
     });
   }
 }

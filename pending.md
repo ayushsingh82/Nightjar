@@ -1,9 +1,10 @@
 # agent-commerce — Pending
 
 Working checklist tracked alongside the code. `[x]` done, `[~]` partial, `[ ]` open.
-Milestones §1–§6 are complete. **Full ZK keygen is no longer blocked** — the
-reputation circuits were redesigned and the keys went from 601MB to 43MB.
-`TxAssembler` is still open; the solution is now known (see midnight1).
+Milestones §1–§6 are complete. **Full ZK keygen is no longer blocked** (601MB ->
+57MB) and **reputation is now both sound and private** — earned through settled
+escrows, and unlinkable to the seller. `TxAssembler` is the one seam left; the
+solution is known (see midnight1).
 
 ## Milestone status (plan.md)
 
@@ -84,13 +85,17 @@ Score so far: **6 milestones done (§1–§6).**
   every agent at a zero aggregate, so a history cannot start fabricated either.
 - [x] **Full proving-key generation** — done, and the LEDGER_CAP question is
   moot because there is no cap any more.
-- [ ] **Seller linkability.** Escrows name the seller in the clear, so now that
-  reputation is escrow-bound, a seller's job count and volume are publicly
-  derivable — the thing `proveReputation` exists to hide. Fix: store
-  `persistentCommit(sellerAgentId, nonce)` instead of the agent id, prove the
-  opening in `markDelivered`/`updateReputation`, and have the buyer disclose it
-  on `dispute` so slashing still works. Documented in marketplace.compact and
-  asserted in demo-market.test.ts rather than left implicit.
+- [x] **Seller linkability — fixed.** `EscrowRecord` now stores
+  `persistentCommit(sellerAgentId, nonce)` instead of the agent id. The seller
+  proves the opening to deliver or to record the job — no disclosure — and the
+  buyer discloses it only when raising a dispute, because slashing has to name a
+  bond. Every escrow uses a fresh opening, so two jobs by the same seller
+  produce unrelated commitments: an observer cannot group escrows by seller, let
+  alone count one seller's history. Asserted in demo-market.test.ts.
+  - Cost: 43MB -> 57MB of keys, 25s -> 27s keygen. `updateReputation` carries
+    the extra opening proof (9.5 -> 18.6MB).
+  - `buyer == seller` moved from `openEscrow` (which can no longer see it) to
+    `markDelivered`, where the opening is proven.
 
 ## Reputation circuit
 - [x] Fixed-point success-rate check: successes*10000 >= total*minRateBps
