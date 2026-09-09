@@ -1,6 +1,7 @@
 # agent-commerce — Pending
 
-Working checklist. Not committed. Move items to done as they land.
+Working checklist tracked alongside the code. `[x]` done, `[~]` partial, `[ ]` open.
+Milestones §1, §2, §3, §4 are complete and pushed; §5 is a shell.
 
 ## Milestone status (plan.md)
 
