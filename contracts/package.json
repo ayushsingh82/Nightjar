@@ -9,12 +9,14 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "npm run typecheck && npm run test"
+    "check": "npm run typecheck && npm run test",
+    "seed:seller": "tsx scripts/seed-seller.ts"
   },
   "dependencies": {
     "@midnight-ntwrk/compact-runtime": "0.19.0"
   },
   "devDependencies": {
+    "tsx": "^4.23.13",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
   }
