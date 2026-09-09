@@ -1,0 +1,257 @@
+// agent-commerce — private agent-to-agent commerce + reputation
+//
+// Compact >= 0.23 (compact-runtime 0.16.x). Patterns cross-checked against
+// Midnight-Skills templates/private-party-dapp, templates/locker-dapp,
+// .agents/skills/compact and .agents/skills/midnight-security.
+//
+// Privacy boundary
+//   private (witness): agent identity secret, full job ledger, ledger salt
+//   public  (ledger) : staked bonds, per-agent reputation commitment, escrow
+//                      records, arbiter key, slashed total
+//   disclosed        : agent id (a hash), bond amounts, escrow amounts, and the
+//                      single boolean from proveReputation. Never a client,
+//                      a price, or the job count.
+//
+// MVP limitation: the job ledger is self-reported. Production binds each job
+// leaf to an on-chain escrow receipt (see `jobReceipts` note in release()).
+
+pragma language_version >= 0.23;
+
+import CompactStandardLibrary;
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export enum EscrowState { EMPTY, FUNDED, DELIVERED, RELEASED, DISPUTED, SLASHED }
+
+struct EscrowRecord {
+  buyer: Bytes<32>,
+  seller: Bytes<32>,
+  amount: Uint<64>,
+  state: EscrowState
+}
+
+// One entry in an agent's PRIVATE job ledger. Never touches the chain.
+struct Job {
+  client: Bytes<32>,   // zero => empty slot
+  price: Uint<64>,
+  success: Boolean
+}
+
+// Fixed ledger capacity — the circuit folds over exactly this many slots, so
+// this is the largest history an agent can ever prove over. 64 covers the demo
+// thresholds (>=50 jobs); raising it grows the proving key and proof time.
+const LEDGER_CAP: Uint<16> = 64;
+
+// ---------------------------------------------------------------------------
+// Public (ledger) state
+// ---------------------------------------------------------------------------
+
+export sealed ledger arbiterPk: Bytes<32>;
+
+// agentId -> staked bond
+export ledger bonds: Map<Bytes<32>, Uint<64>>;
+
+// agentId -> persistentCommit(ledgerHash, salt)
+export ledger reputationCommitments: Map<Bytes<32>, Bytes<32>>;
+
+// escrowId -> record
+export ledger escrows: Map<Bytes<32>, EscrowRecord>;
+
+export ledger escrowCount: Counter;
+export ledger slashedTotal: Uint<64>;
+
+// ---------------------------------------------------------------------------
+// Private (witness) inputs — bodies in contracts/src/witnesses.ts
+// ---------------------------------------------------------------------------
+
+witness callerSecret(): Bytes<32>;
+witness jobLedger(): Vector<64, Job>;   // padded to LEDGER_CAP by the client
+witness ledgerSalt(): Bytes<32>;
+
+// ---------------------------------------------------------------------------
+// Key derivation — unique domain separator per purpose
+// ---------------------------------------------------------------------------
+
+pure circuit agentIdFrom(sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([pad(32, "agentmkt:agent:v1"), sk]);
+}
+
+pure circuit deriveArbiterPk(sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([pad(32, "agentmkt:arbiter:v1"), sk]);
+}
+
+pure circuit jobLeaf(j: Job): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([
+    j.client,
+    persistentHash<Uint<64>>(j.price),
+    persistentHash<Boolean>(j.success)
+  ]);
+}
+
+// Order-sensitive hash chain over the whole ledger — the value we commit to.
+circuit ledgerHash(jobs: Vector<64, Job>): Bytes<32> {
+  return fold(
+    (acc, j) => persistentHash<Vector<2, Bytes<32>>>([acc, jobLeaf(j)]),
+    pad(32, "agentmkt:ledger:v1"),
+    jobs
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Constructor
+// ---------------------------------------------------------------------------
+
+constructor(arbiterSecret: Bytes<32>) {
+  arbiterPk = disclose(deriveArbiterPk(arbiterSecret));
+  slashedTotal = 0;
+}
+
+// ---------------------------------------------------------------------------
+// Bond
+// ---------------------------------------------------------------------------
+
+export circuit stakeBond(amount: Uint<64>): [] {
+  const id = disclose(agentIdFrom(callerSecret()));
+  const current = bonds.member(id) ? bonds.lookup(id) : 0;
+  bonds.insert(id, disclose((current + amount) as Uint<64>));
+}
+
+export circuit withdrawBond(amount: Uint<64>): [] {
+  const id = disclose(agentIdFrom(callerSecret()));
+  assert(bonds.member(id), "no bond staked");
+  const current = bonds.lookup(id);
+  assert(disclose(amount) <= current, "bond withdrawal exceeds stake");
+  bonds.insert(id, (current - amount) as Uint<64>);
+}
+
+// ---------------------------------------------------------------------------
+// Reputation
+// ---------------------------------------------------------------------------
+
+// Publish / rotate the commitment to the private job ledger. The witness ledger
+// is authoritative; the client appends a job locally, then calls this.
+export circuit updateReputation(): [] {
+  const id = disclose(agentIdFrom(callerSecret()));
+  const commit = disclose(persistentCommit<Bytes<32>>(ledgerHash(jobLedger()), ledgerSalt()));
+  reputationCommitments.insert(id, commit);
+}
+
+// The ZK moment. Aggregate over the private ledger, check it against the
+// on-chain commitment, disclose only the boolean.
+export circuit proveReputation(
+  minJobs: Uint<64>,
+  minRateBps: Uint<64>,
+  minVolume: Uint<64>
+): Boolean {
+  assert(disclose(minRateBps) <= 10000, "rate bps out of range");
+
+  const id = disclose(agentIdFrom(callerSecret()));
+  assert(reputationCommitments.member(id), "no reputation commitment");
+
+  const jobs = jobLedger();
+  assert(
+    disclose(persistentCommit<Bytes<32>>(ledgerHash(jobs), ledgerSalt())
+             == reputationCommitments.lookup(id)),
+    "ledger does not match on-chain commitment"
+  );
+
+  // acc = [total, successes, volume]; total/successes bounded by LEDGER_CAP (64)
+  // and minRateBps <= 10000, so the products stay well inside Uint<64>.
+  // Expression-bodied lambda (no block / `return` — Compact folds want an expr).
+  const stats = fold(
+    (acc, j) => [
+      (j.client != default<Bytes<32>>) ? (acc[0] + 1) as Uint<64> : acc[0],
+      (j.client != default<Bytes<32>> && j.success) ? (acc[1] + 1) as Uint<64> : acc[1],
+      (j.client != default<Bytes<32>> && j.success) ? (acc[2] + j.price) as Uint<64> : acc[2]
+    ],
+    [0, 0, 0],
+    jobs
+  );
+  const total = stats[0];
+  const successes = stats[1];
+  const volume = stats[2];
+
+  const okJobs = successes >= minJobs;
+  // successes / total >= minRateBps / 10000
+  const okRate = (successes * 10000) as Uint<64> >= (total * minRateBps) as Uint<64>;
+  const okVolume = volume >= minVolume;
+  return disclose(okJobs && okRate && okVolume);
+}
+
+// ---------------------------------------------------------------------------
+// Escrow with slashing
+// ---------------------------------------------------------------------------
+
+export circuit openEscrow(escrowId: Bytes<32>, seller: Bytes<32>, amount: Uint<64>): [] {
+  assert(!escrows.member(escrowId), "escrow id already used");
+  const buyer = disclose(agentIdFrom(callerSecret()));
+  assert(buyer != disclose(seller), "buyer and seller must differ");
+  // `amount` is transferred into escrow by the token layer (out of scope here).
+  escrows.insert(escrowId, EscrowRecord {
+    buyer: buyer,
+    seller: disclose(seller),
+    amount: disclose(amount),
+    state: EscrowState.FUNDED
+  });
+  escrowCount.increment(1);
+}
+
+export circuit markDelivered(escrowId: Bytes<32>): [] {
+  assert(escrows.member(escrowId), "unknown escrow");
+  const e = escrows.lookup(escrowId);
+  assert(disclose(agentIdFrom(callerSecret())) == e.seller, "only the seller can deliver");
+  assert(e.state == EscrowState.FUNDED, "escrow not in FUNDED state");
+  escrows.insert(escrowId, EscrowRecord {
+    buyer: e.buyer, seller: e.seller, amount: e.amount, state: EscrowState.DELIVERED
+  });
+}
+
+export circuit release(escrowId: Bytes<32>): [] {
+  assert(escrows.member(escrowId), "unknown escrow");
+  const e = escrows.lookup(escrowId);
+  assert(disclose(agentIdFrom(callerSecret())) == e.buyer, "only the buyer can release");
+  assert(e.state == EscrowState.DELIVERED, "escrow not delivered");
+  // funds -> seller (token layer).
+  // Production: also insert persistentHash([escrowId, buyer, seller, amount])
+  // into a `jobReceipts` Set so updateReputation can require each job leaf to
+  // correspond to a settled escrow.
+  escrows.insert(escrowId, EscrowRecord {
+    buyer: e.buyer, seller: e.seller, amount: e.amount, state: EscrowState.RELEASED
+  });
+}
+
+export circuit dispute(escrowId: Bytes<32>): [] {
+  assert(escrows.member(escrowId), "unknown escrow");
+  const e = escrows.lookup(escrowId);
+  assert(disclose(agentIdFrom(callerSecret())) == e.buyer, "only the buyer can dispute");
+  assert(e.state == EscrowState.FUNDED || e.state == EscrowState.DELIVERED, "not disputable");
+  escrows.insert(escrowId, EscrowRecord {
+    buyer: e.buyer, seller: e.seller, amount: e.amount, state: EscrowState.DISPUTED
+  });
+}
+
+// Only the arbiter (key fixed at deploy) can resolve. On seller fault the bond
+// is slashed by up to the escrow amount.
+export circuit resolveDispute(escrowId: Bytes<32>, sellerAtFault: Boolean): [] {
+  assert(deriveArbiterPk(callerSecret()) == arbiterPk, "only the arbiter can resolve");
+  assert(escrows.member(escrowId), "unknown escrow");
+  const e = escrows.lookup(escrowId);
+  assert(e.state == EscrowState.DISPUTED, "escrow not disputed");
+
+  if (disclose(sellerAtFault)) {
+    const sellerBond = bonds.member(e.seller) ? bonds.lookup(e.seller) : 0;
+    const slash = sellerBond < e.amount ? sellerBond : e.amount;
+    bonds.insert(e.seller, (sellerBond - slash) as Uint<64>);
+    slashedTotal = (slashedTotal + slash) as Uint<64>;
+    escrows.insert(escrowId, EscrowRecord {
+      buyer: e.buyer, seller: e.seller, amount: e.amount, state: EscrowState.SLASHED
+    });
+    // buyer refunded amount + slash by the token layer
+  } else {
+    escrows.insert(escrowId, EscrowRecord {
+      buyer: e.buyer, seller: e.seller, amount: e.amount, state: EscrowState.RELEASED
+    });
+  }
+}
