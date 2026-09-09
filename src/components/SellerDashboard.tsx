@@ -62,7 +62,7 @@ function PrivateLedger({ seller }: { seller: AgentView }) {
   return (
     <Panel
       title="Private job ledger"
-      subtitle={`${seller.stats.totalJobs} of ${seller.ledgerCap} slots used — local only`}
+      subtitle={`${seller.stats.totalJobs} jobs — local only, and unbounded`}
     >
       <div className="max-h-80 overflow-auto -mx-1 px-1">
         <table className="w-full text-xs">

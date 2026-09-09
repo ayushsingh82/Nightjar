@@ -20,11 +20,12 @@
 import { MarketSim, job as mkJob } from "../../../contracts/test/simulator";
 import {
   Agent,
-  demoSellerLedger,
-  newcomerSellerLedger,
+  DEMO_SELLER_HISTORY,
+  earnHistory,
+  NEWCOMER_HISTORY,
   randomEscrowId,
+  type HistorySpec,
 } from "../../../contracts/src/runtime";
-import { LEDGER_CAP } from "./agent";
 import type { PublishedBadge } from "./badge";
 import { toHex } from "./market-types";
 import type {
@@ -86,10 +87,6 @@ async function sha256Hex(text: string): Promise<string> {
   return toHex(new Uint8Array(digest));
 }
 
-function isEmptySlot(client: Uint8Array): boolean {
-  return client.every((b) => b === 0);
-}
-
 // ---------------------------------------------------------------------------
 // Personas
 // ---------------------------------------------------------------------------
@@ -100,9 +97,13 @@ type PersonaSpec = {
   role: "buyer" | "seller";
   blurb: string;
   /** Seed history applied by the `seed` action. */
-  seed: () => ReturnType<typeof demoSellerLedger>;
+  /** History this agent earns by running real escrows. Buyers have none. */
+  history?: HistorySpec;
   bond: bigint;
 };
+
+/** The buyer every seeded job is bought by. */
+const BUYER_KEY = "orion";
 
 const PERSONAS: PersonaSpec[] = [
   {
@@ -110,7 +111,6 @@ const PERSONAS: PersonaSpec[] = [
     name: "Orion Ops",
     role: "buyer",
     blurb: "Buyer agent. Hires on a badge and nothing else.",
-    seed: () => [],
     bond: 0n,
   },
   {
@@ -118,7 +118,7 @@ const PERSONAS: PersonaSpec[] = [
     name: "Atlas Research",
     role: "seller",
     blurb: "Seller agent with a long private track record.",
-    seed: () => demoSellerLedger(),
+    history: DEMO_SELLER_HISTORY,
     bond: 20_000n,
   },
   {
@@ -126,7 +126,7 @@ const PERSONAS: PersonaSpec[] = [
     name: "Nomad Labs",
     role: "seller",
     blurb: "Seller agent, newly active.",
-    seed: () => newcomerSellerLedger(),
+    history: NEWCOMER_HISTORY,
     bond: 2_000n,
   },
 ];
@@ -198,7 +198,8 @@ class MarketSession {
         break;
 
       case "commitLedger":
-        await this.sim.updateReputation(this.agent(action.agent).privateState);
+        // Kept for wire compatibility; the aggregate now advances only through
+        // a settled escrow, so there is nothing to re-commit on demand.
         break;
 
       case "proveReputation":
@@ -238,14 +239,37 @@ class MarketSession {
 
   // --- actions -------------------------------------------------------
 
+  /**
+   * Build each seller's reputation the only way the contract allows: by running
+   * real escrows. There is no seeding shortcut any more, because
+   * `updateReputation` reads its amount and outcome off a settled escrow.
+   *
+   * The buyer for every seeded job is the buyer persona, which is why the
+   * escrow list starts long. That is not noise — it is the honest cost of a
+   * reputation that cannot be invented.
+   */
   private async seedAll(): Promise<void> {
+    const buyer = this.agent(BUYER_KEY);
     for (const p of PERSONAS) {
       const a = this.agent(p.key);
-      const history = p.seed();
       if (p.bond > 0n) await this.sim.stakeBond(a.secret, p.bond);
-      if (history.length > 0) {
-        a.seedLedger(history);
-        await this.sim.updateReputation(a.privateState);
+      if (p.history) {
+        const outcomes = await earnHistory(this.sim, buyer, a, this.arbiterSecret, p.history);
+        // Every seeded job came from a real escrow, so record which one. The
+        // seller's rows and the buyer's rows are appended in the same order.
+        const sellerId = toHex(a.id);
+        const buyerId = toHex(buyer.id);
+        const sellerOrigins = this.jobOrigins.get(sellerId) ?? new Map<number, string>();
+        const buyerOrigins = this.jobOrigins.get(buyerId) ?? new Map<number, string>();
+        let sellerIndex = sellerOrigins.size;
+        let buyerIndex = buyerOrigins.size;
+        for (const o of outcomes) {
+          const hex = toHex(o.escrowId);
+          sellerOrigins.set(sellerIndex++, hex);
+          if (o.released) buyerOrigins.set(buyerIndex++, hex);
+        }
+        this.jobOrigins.set(sellerId, sellerOrigins);
+        this.jobOrigins.set(buyerId, buyerOrigins);
       }
     }
   }
@@ -303,13 +327,12 @@ class MarketSession {
     const record = this.escrowRecord(escrowIdHex);
     const buyer = this.escrowBuyer(escrowIdHex);
     const seller = this.escrowSeller(escrowIdHex);
-    this.assertLedgerRoom(seller);
-    this.assertLedgerRoom(buyer);
 
     await this.sim.release(buyer.secret, fromHex(escrowIdHex));
     this.appendJob(seller, mkJob(buyer.id, record.amount, true), escrowIdHex);
     this.appendJob(buyer, mkJob(seller.id, record.amount, true), escrowIdHex);
-    await this.sim.updateReputation(seller.privateState);
+    await this.sim.updateReputation(seller.privateState, fromHex(escrowIdHex));
+    seller.settle(record.amount, true);
   }
 
   private async resolveDispute(
@@ -319,9 +342,9 @@ class MarketSession {
     const seller = this.escrowSeller(action.escrowId);
     await this.sim.resolveDispute(this.arbiterSecret, fromHex(action.escrowId), action.sellerAtFault);
     if (action.sellerAtFault) {
-      this.assertLedgerRoom(seller);
       this.appendJob(seller, mkJob(record.buyer, record.amount, false), action.escrowId);
-      await this.sim.updateReputation(seller.privateState);
+      await this.sim.updateReputation(seller.privateState, fromHex(action.escrowId));
+      seller.settle(record.amount, false);
     }
   }
 
@@ -333,14 +356,6 @@ class MarketSession {
     const origins = this.jobOrigins.get(id) ?? new Map<number, string>();
     origins.set(index, escrowIdHex);
     this.jobOrigins.set(id, origins);
-  }
-
-  private assertLedgerRoom(a: Agent): void {
-    if (a.jobCount >= LEDGER_CAP) {
-      throw new Error(
-        `${a.name}'s private ledger is full (LEDGER_CAP ${LEDGER_CAP}) — reset the demo`,
-      );
-    }
   }
 
   // --- escrow lookups (chain state is the source of truth) ------------
@@ -399,8 +414,7 @@ class MarketSession {
     const jobs: PrivateJobRow[] = [];
     let ok = 0;
     let volume = 0n;
-    ps.jobLedger.forEach((j, index) => {
-      if (isEmptySlot(j.client)) return;
+    ps.jobs.forEach((j, index) => {
       jobs.push({
         client: toHex(j.client),
         price: j.price.toString(),
@@ -426,7 +440,6 @@ class MarketSession {
         volume: volume.toString(),
         successRateBps: jobs.length === 0 ? 0 : Math.floor((ok * 10000) / jobs.length),
       },
-      ledgerCap: LEDGER_CAP,
     };
   }
 

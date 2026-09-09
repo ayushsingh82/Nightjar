@@ -3,8 +3,8 @@
 // slashing math, reputation monotonicity, and proof soundness.
 
 import { beforeEach, describe, expect, it } from "vitest";
-import { agentState, job, MarketSim } from "./simulator.js";
-import { appendJob } from "../src/witnesses.js";
+import { agentState, earnStats, MarketSim } from "./simulator.js";
+import { applySettlement } from "../src/witnesses.js";
 import { EscrowState } from "../src/managed/marketplace/contract/index.js";
 
 const ARBITER = new Uint8Array(32).fill(1);
@@ -12,9 +12,6 @@ const NOT_ARBITER = new Uint8Array(32).fill(99);
 const SELLER = new Uint8Array(32).fill(2);
 const BUYER = new Uint8Array(32).fill(3);
 const SALT = new Uint8Array(32).fill(9);
-
-const CLIENT_A = new Uint8Array(32).fill(50);
-const CLIENT_B = new Uint8Array(32).fill(51);
 
 const eid = (n: number) => new Uint8Array(32).fill(n);
 
@@ -137,67 +134,121 @@ describe("agent-commerce marketplace core", () => {
   });
 
   describe("reputation", () => {
+    // 4 jobs, 3 released: 3 successes, 3/4 = 7500 bps, volume 4000+3500+2600 = 10,100.
+    // Earned through real escrows, because that is the only way the contract
+    // will move an aggregate.
     const base = [
-      job(CLIENT_A, 4000n, true),
-      job(CLIENT_B, 3500n, true),
-      job(CLIENT_A, 2600n, true),
-      job(CLIENT_B, 900n, false),
+      { price: 4000n, success: true },
+      { price: 3500n, success: true },
+      { price: 2600n, success: true },
+      { price: 900n, success: false },
     ];
 
-    it("proves a threshold the private ledger supports", async () => {
-      const ps = agentState(SELLER, SALT, base);
-      await sim.updateReputation(ps);
-      // 3 successes, 3/4 = 7500 bps, volume 10100
+    const earnBase = () =>
+      earnStats(sim, { seller: SELLER, sellerSalt: SALT, buyer: BUYER, arbiter: ARBITER, jobs: base });
+
+    it("proves a threshold the earned history supports", async () => {
+      const ps = await earnBase();
       expect(await sim.proveReputation(ps, 3n, 7000n, 10_000n)).toBe(true);
     });
 
-    it("fails a threshold the ledger does not support", async () => {
-      const ps = agentState(SELLER, SALT, base);
-      await sim.updateReputation(ps);
+    it("fails a threshold the history does not support", async () => {
+      const ps = await earnBase();
       expect(await sim.proveReputation(ps, 4n, 7000n, 10_000n)).toBe(false); // only 3 successes
       expect(await sim.proveReputation(ps, 3n, 8000n, 10_000n)).toBe(false); // rate 7500 < 8000
       expect(await sim.proveReputation(ps, 3n, 7000n, 11_000n)).toBe(false); // volume 10100 < 11000
     });
 
-    it("monotonicity: appending a successful job raises what can be proven", async () => {
-      let ps = agentState(SELLER, SALT, base);
-      await sim.updateReputation(ps);
-      expect(await sim.proveReputation(ps, 4n, 7000n, 10_000n)).toBe(false);
-
-      ps = appendJob(ps, job(CLIENT_A, 5000n, true));
-      await sim.updateReputation(ps); // rotate the commitment
-      expect(await sim.proveReputation(ps, 4n, 7000n, 15_000n)).toBe(true); // now 4 successes, vol 15100
+    it("a failed job counts toward the total but not the rate or volume", async () => {
+      const ps = await earnBase();
+      expect(ps.stats).toEqual({ total: 4n, successes: 3n, volume: 10_100n });
     });
 
-    it("soundness: cannot prove against a ledger other than the committed one", async () => {
-      const committed = agentState(SELLER, SALT, base);
-      await sim.updateReputation(committed);
+    it("monotonicity: one more settled job raises what can be proven", async () => {
+      let ps = await earnBase();
+      expect(await sim.proveReputation(ps, 4n, 7000n, 15_000n)).toBe(false);
 
-      // same salt + key, but a fabricated ledger with an extra success
-      const fabricated = agentState(SELLER, SALT, [...base, job(CLIENT_A, 9999n, true)]);
-      await expect(sim.proveReputation(fabricated, 4n, 7000n, 10_000n)).rejects.toThrow(
-        /does not match on-chain commitment/,
+      const eid = new Uint8Array(32).fill(210);
+      await sim.openEscrow(BUYER, eid, sim.agentId(SELLER), 5000n);
+      await sim.markDelivered(SELLER, eid);
+      await sim.release(BUYER, eid);
+      await sim.updateReputation(ps, eid);
+      ps = agentState(SELLER, SALT, applySettlement(ps.stats, 5000n, true));
+
+      expect(await sim.proveReputation(ps, 4n, 7000n, 15_000n)).toBe(true); // 4 successes, vol 15,100
+    });
+
+    it("soundness: an aggregate the chain did not compute cannot be proven", async () => {
+      const ps = await earnBase();
+      // Same key and salt, but one extra success invented locally.
+      const inflated = agentState(SELLER, SALT, {
+        total: ps.stats.total + 1n,
+        successes: ps.stats.successes + 1n,
+        volume: ps.stats.volume + 9999n,
+      });
+      await expect(sim.proveReputation(inflated, 4n, 7000n, 10_000n)).rejects.toThrow(
+        /does not match the on-chain commitment/,
       );
     });
 
-    it("soundness: a different salt does not match the commitment", async () => {
-      const committed = agentState(SELLER, SALT, base);
-      await sim.updateReputation(committed);
-      const otherSalt = agentState(SELLER, new Uint8Array(32).fill(123), base);
+    it("soundness: a different salt does not open the commitment", async () => {
+      const ps = await earnBase();
+      const otherSalt = agentState(SELLER, new Uint8Array(32).fill(123), ps.stats);
       await expect(sim.proveReputation(otherSalt, 3n, 7000n, 10_000n)).rejects.toThrow(
-        /does not match on-chain commitment/,
+        /does not match the on-chain commitment/,
       );
+    });
+
+    it("soundness: an escrow cannot be counted twice", async () => {
+      const ps = await earnStats(sim, {
+        seller: SELLER,
+        sellerSalt: SALT,
+        buyer: BUYER,
+        arbiter: ARBITER,
+        jobs: [{ price: 1000n, success: true }],
+      });
+      // Re-running the last settlement would double the seller's volume.
+      const counted = [...sim.ledger.countedEscrows][0];
+      await expect(sim.updateReputation(ps, counted)).rejects.toThrow(/already counted/);
+    });
+
+    it("soundness: only the seller can record their own job", async () => {
+      const eid = new Uint8Array(32).fill(77);
+      await sim.registerAgent(agentState(SELLER, SALT));
+      await sim.registerAgent(agentState(BUYER, SALT));
+      await sim.openEscrow(BUYER, eid, sim.agentId(SELLER), 1000n);
+      await sim.markDelivered(SELLER, eid);
+      await sim.release(BUYER, eid);
+
+      await expect(
+        sim.updateReputation(agentState(BUYER, SALT), eid),
+      ).rejects.toThrow(/only the seller can record this job/);
+    });
+
+    it("soundness: an unsettled escrow cannot be counted", async () => {
+      const eid = new Uint8Array(32).fill(88);
+      const ps = agentState(SELLER, SALT);
+      await sim.registerAgent(ps);
+      await sim.openEscrow(BUYER, eid, sim.agentId(SELLER), 1000n);
+      await sim.markDelivered(SELLER, eid); // delivered, but not released
+      await expect(sim.updateReputation(ps, eid)).rejects.toThrow(/has not settled/);
     });
 
     it("rejects an out-of-range success rate", async () => {
-      const ps = agentState(SELLER, SALT, base);
-      await sim.updateReputation(ps);
+      const ps = await earnBase();
       await expect(sim.proveReputation(ps, 1n, 10_001n, 0n)).rejects.toThrow(/rate bps out of range/);
     });
 
-    it("requires a commitment before proving", async () => {
-      const ps = agentState(SELLER, SALT, base);
-      await expect(sim.proveReputation(ps, 1n, 5000n, 0n)).rejects.toThrow(/no reputation commitment/);
+    it("requires registration before proving", async () => {
+      await expect(
+        sim.proveReputation(agentState(SELLER, SALT), 1n, 5000n, 0n),
+      ).rejects.toThrow(/no reputation commitment/);
+    });
+
+    it("an agent cannot register twice, so it cannot reset a bad history", async () => {
+      const ps = agentState(SELLER, SALT);
+      await sim.registerAgent(ps);
+      await expect(sim.registerAgent(ps)).rejects.toThrow(/already registered/);
     });
   });
 });

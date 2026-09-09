@@ -1,8 +1,9 @@
 # agent-commerce — Pending
 
 Working checklist tracked alongside the code. `[x]` done, `[~]` partial, `[ ]` open.
-Milestones §1–§6 are complete; the two blocked seams (`TxAssembler`, full ZK
-key generation) are unchanged and still open.
+Milestones §1–§6 are complete. **Full ZK keygen is no longer blocked** — the
+reputation circuits were redesigned and the keys went from 601MB to 43MB.
+`TxAssembler` is still open; the solution is now known (see midnight1).
 
 ## Milestone status (plan.md)
 
@@ -11,10 +12,12 @@ key generation) are unchanged and still open.
   (`test/marketplace.test.ts`, 20 cases: escrow lifecycle, slashing math,
   arbiter auth, reputation monotonicity, proof soundness). 41/41 passing,
   `tsc --noEmit` clean.
-  - *Caveat:* built with `--skip-zk` (logic + JS only). Full proving-key
-    generation for `proveReputation` is heavy — a 64-slot double `fold`
-    (`ledgerHash` + stats) — and does not finish quickly on this machine. Tied
-    to the LEDGER_CAP tuning question below. Simulator tests do not need keys.
+  - **Full ZK keygen now works and is fast.** It was the 64-slot double `fold`,
+    not the machine: keys scale linearly with the cap (8 slots -> 36.8MB,
+    64 -> 291MB), so no cap both fits a browser and supports a >=50-job badge.
+    Reputation is now an incremental aggregate instead, which made the circuits
+    O(1): **601MB -> 43MB total, keygen 12m37s -> 25s**, and the provable
+    history is unbounded rather than capped at 64.
 - **§2 Reputation Circuit + TS parity — DONE.** `reputation.ts` reference +
   `test/reputation.parity.test.ts` (21 cases): every persona × threshold agrees
   with the compiled `proveReputation` circuit.
@@ -75,8 +78,19 @@ Score so far: **6 milestones done (§1–§6).**
 - [x] Parity test: `reputation.ts` vs `proveReputation` circuit — `test/reputation.parity.test.ts`
 - [x] In-memory simulator (`test/simulator.ts`) — no proof server
 - [x] Export `agentIdFrom` / `deriveArbiterPk` pure circuits (needed by tests + clients)
-- [ ] Bind each `jobLeaf` to an on-chain escrow receipt in `release` (kill self-report)
-- [ ] Full proving-key generation — needs the LEDGER_CAP decision first (below)
+- [x] **Self-report killed.** `updateReputation(escrowId)` reads the amount and
+  outcome off a settled escrow rather than taking the caller's word, and
+  `countedEscrows` stops one settlement counting twice. `registerAgent` anchors
+  every agent at a zero aggregate, so a history cannot start fabricated either.
+- [x] **Full proving-key generation** — done, and the LEDGER_CAP question is
+  moot because there is no cap any more.
+- [ ] **Seller linkability.** Escrows name the seller in the clear, so now that
+  reputation is escrow-bound, a seller's job count and volume are publicly
+  derivable — the thing `proveReputation` exists to hide. Fix: store
+  `persistentCommit(sellerAgentId, nonce)` instead of the agent id, prove the
+  opening in `markDelivered`/`updateReputation`, and have the buyer disclose it
+  on `dispute` so slashing still works. Documented in marketplace.compact and
+  asserted in demo-market.test.ts rather than left implicit.
 
 ## Reputation circuit
 - [x] Fixed-point success-rate check: successes*10000 >= total*minRateBps
@@ -171,11 +185,9 @@ Score so far: **6 milestones done (§1–§6).**
 
 ## Open questions
 - [ ] Which Midnight wallet for the demo (Lace / other)?
-- [ ] **LEDGER_CAP + proof time.** Full keygen for `proveReputation` at CAP 64 is
-      slow. Dropping to 32/16 speeds it up but caps the provable job count —
-      and the demo badge wants ≥50 jobs. Options: keep 64 and eat the keygen
-      cost once, move the ledger to a `MerkleTree` (REVIEW C4) so the circuit
-      folds over a witness path instead of 64 slots, or lower the demo threshold.
+- [x] **LEDGER_CAP + proof time — resolved.** Neither keeping 64 nor lowering it
+      worked (36.8MB even at 8 slots). Replaced the fold with an incremental
+      aggregate: O(1) circuits, no cap, 43MB of keys.
 - [ ] Escrow asset — native token or mock stablecoin?
 - [x] Commitment scheme — hash-chain fold + persistentCommit (decided)
 - [x] Dispute resolution — arbiter key set at deploy (decided); still need the arbiter service

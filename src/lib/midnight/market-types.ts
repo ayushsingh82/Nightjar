@@ -84,7 +84,6 @@ export type AgentView = {
   ledgerSalt: string;
   jobs: PrivateJobRow[];
   stats: PrivateStats;
-  ledgerCap: number;
 };
 
 export type MarketEvent = {

@@ -15,6 +15,8 @@ const eslintConfig = defineConfig([
     // Compiler output from `npm run compact:fast` — generated, gitignored, and
     // not ours to style.
     "contracts/src/managed/**",
+    // Full-ZK compiler output (`compact compile` without --skip-zk).
+    "contracts/src/managed-zk/**",
   ]),
 ]);
 

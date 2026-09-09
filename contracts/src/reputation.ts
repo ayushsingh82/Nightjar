@@ -1,51 +1,48 @@
-// agent-commerce — TS reference for the reputation aggregation.
+// agent-commerce — TS reference for the reputation thresholds.
 //
 // MUST stay in lockstep with `proveReputation` in marketplace.compact:
-//   fold over the padded ledger (LEDGER_CAP slots), skipping empty ones,
-//   then okJobs && okRate && okVolume.
+//   okJobs   : successes >= minJobs
+//   okRate   : successes * 10000 >= total * minRateBps
+//   okVolume : volume >= minVolume
 // Parity-tested in contracts/test/reputation.parity.test.ts.
+//
+// The aggregate itself is maintained by `applySettlement` in witnesses.ts, one
+// settled escrow at a time, mirroring the circuit's transition.
 
-import type { Job } from "./witnesses";
+import type { Job, ReputationStats } from "./witnesses";
 
-const ZERO32 = new Uint8Array(32);
+export type { ReputationStats };
 
-function isEmpty(job: Job): boolean {
-  return job.client.length === ZERO32.length && job.client.every((x) => x === 0);
-}
-
-export type ReputationStats = {
-  totalJobs: bigint;
-  successfulJobs: bigint;
-  volume: bigint; // sum of price over successful jobs
-};
-
-export function aggregate(ledger: Job[]): ReputationStats {
+/**
+ * Roll a list of jobs into an aggregate. Used to build a fixture or to check a
+ * client's own bookkeeping — never to authorise anything, because the contract
+ * only ever advances the aggregate through settled escrows.
+ */
+export function aggregate(jobs: Job[]): ReputationStats {
   let total = 0n;
   let successes = 0n;
   let volume = 0n;
-  for (const j of ledger) {
-    if (isEmpty(j)) continue;
+  for (const j of jobs) {
     total += 1n;
     if (j.success) {
       successes += 1n;
       volume += j.price;
     }
   }
-  return { totalJobs: total, successfulJobs: successes, volume };
+  return { total, successes, volume };
 }
 
 export function meetsReputation(
-  ledger: Job[],
+  stats: ReputationStats,
   minJobs: bigint,
   minRateBps: bigint,
   minVolume: bigint,
 ): boolean {
   if (minRateBps > 10000n) throw new Error("rate bps out of range");
-  const s = aggregate(ledger);
-  const okJobs = s.successfulJobs >= minJobs;
+  const okJobs = stats.successes >= minJobs;
   // successes / total >= minRateBps / 10000  ->  successes*10000 >= total*minRateBps
-  const okRate = s.successfulJobs * 10000n >= s.totalJobs * minRateBps;
-  const okVolume = s.volume >= minVolume;
+  const okRate = stats.successes * 10000n >= stats.total * minRateBps;
+  const okVolume = stats.volume >= minVolume;
   return okJobs && okRate && okVolume;
 }
 

@@ -5,7 +5,8 @@ import { MarketSim } from "./simulator.js";
 import {
   Agent,
   DEMO_BADGE,
-  demoSellerLedger,
+  DEMO_SELLER_HISTORY,
+  earnHistory,
   escrowId,
   runJob,
   runJobs,
@@ -74,11 +75,12 @@ describe("agent runtime", () => {
     expect(await sim.proveReputation(seller.privateState, 7n, 10_000n, 12_000n)).toBe(false);
   });
 
-  it("demoSellerLedger clears the marketplace badge", async () => {
+  it("a history earned through real escrows clears the marketplace badge", async () => {
     const sim = await MarketSim.deploy(ARBITER);
     const seller = new Agent("seller", "seller", SELLER_SK, SALT);
-    seller.seedLedger(demoSellerLedger());
-    await sim.updateReputation(seller.privateState);
+    const buyer = new Agent("buyer", "buyer");
+
+    await earnHistory(sim, buyer, seller, ARBITER, DEMO_SELLER_HISTORY);
 
     const ok = await sim.proveReputation(
       seller.privateState,
@@ -87,6 +89,8 @@ describe("agent runtime", () => {
       DEMO_BADGE.minVolume,
     );
     expect(ok).toBe(true);
-    expect(seller.jobCount).toBe(55);
-  });
+    expect(seller.jobCount).toBe(DEMO_SELLER_HISTORY.jobs);
+    // 55 jobs, 2 slashed -> 53 successes at 300 each.
+    expect(seller.reputation).toEqual({ total: 55n, successes: 53n, volume: 15_900n });
+  }, 60_000);
 });

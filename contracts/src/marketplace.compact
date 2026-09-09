@@ -5,15 +5,32 @@
 // .agents/skills/compact and .agents/skills/midnight-security.
 //
 // Privacy boundary
-//   private (witness): agent identity secret, full job ledger, ledger salt
+//   private (witness): agent identity secret, running reputation aggregate,
+//                      commitment salt
 //   public  (ledger) : staked bonds, per-agent reputation commitment, escrow
 //                      records, arbiter key, slashed total
 //   disclosed        : agent id (a hash), bond amounts, escrow amounts, and the
 //                      single boolean from proveReputation. Never a client,
 //                      a price, or the job count.
 //
-// MVP limitation: the job ledger is self-reported. Production binds each job
-// leaf to an on-chain escrow receipt (see `jobReceipts` note in release()).
+// Reputation is an INCREMENTAL AGGREGATE, not a replayed ledger.
+//
+// The first cut folded over a fixed 64-slot job vector on every call. That was
+// sound but unshippable: the fold dominated the circuit, and the proving key
+// for `proveReputation` came out at 291MB (36MB even at 8 slots — it scales
+// linearly with the cap, and the demo badge needs >=50 jobs). No browser is
+// fetching that.
+//
+// Instead each agent keeps a running `[total, successes, volume]` privately and
+// the chain holds a commitment to it. `updateReputation` proves one transition
+// — open the committed aggregate, add exactly one settled escrow, re-commit —
+// and `proveReputation` opens the aggregate and compares it to thresholds.
+// Both are O(1), so both are ordinary-sized circuits.
+//
+// It is also what makes the number honest. A job can only enter the aggregate
+// by way of an escrow that actually settled on this contract, at that escrow's
+// real amount, with its real outcome, and each escrow counts at most once.
+// Nothing is self-reported.
 
 pragma language_version >= 0.23;
 
@@ -32,18 +49,9 @@ struct EscrowRecord {
   state: EscrowState
 }
 
-// One entry in an agent's PRIVATE job ledger. Never touches the chain.
-struct Job {
-  client: Bytes<32>,   // zero => empty slot
-  price: Uint<64>,
-  success: Boolean
-}
-
-// Fixed ledger capacity (LEDGER_CAP) is 64 — the circuit folds over exactly this
-// many slots, so it's the largest history an agent can ever prove over. 64
-// covers the demo thresholds (>=50 jobs); raising it grows the proving key and
-// proof time. Compact has no module-level const, so `64` is written inline
-// wherever the Vector width appears; keep them in sync.
+// There is no on-chain job type and no ledger capacity: the aggregate is three
+// numbers, so an agent's provable history is unbounded and the circuit size
+// does not depend on it.
 
 // ---------------------------------------------------------------------------
 // Public (ledger) state
@@ -63,12 +71,20 @@ export ledger escrows: Map<Bytes<32>, EscrowRecord>;
 export ledger escrowCount: Counter;
 export ledger slashedTotal: Uint<64>;
 
+// Escrows already folded into someone's reputation. Stops one settlement being
+// counted twice; the escrow id is public anyway, so this leaks nothing new.
+export ledger countedEscrows: Set<Bytes<32>>;
+
 // ---------------------------------------------------------------------------
 // Private (witness) inputs — bodies in contracts/src/witnesses.ts
 // ---------------------------------------------------------------------------
 
 witness callerSecret(): Bytes<32>;
-witness jobLedger(): Vector<64, Job>;   // padded to LEDGER_CAP by the client
+
+// The agent's running aggregate: [total, successes, volume]. Private. The
+// chain only ever holds `statsCommit` of it.
+witness reputationStats(): [Uint<64>, Uint<64>, Uint<64>];
+
 witness ledgerSalt(): Bytes<32>;
 
 // ---------------------------------------------------------------------------
@@ -83,21 +99,20 @@ export pure circuit deriveArbiterPk(sk: Bytes<32>): Bytes<32> {
   return persistentHash<Vector<2, Bytes<32>>>([pad(32, "agentmkt:arbiter:v1"), sk]);
 }
 
-pure circuit jobLeaf(j: Job): Bytes<32> {
-  return persistentHash<Vector<3, Bytes<32>>>([
-    j.client,
-    persistentHash<Uint<64>>(j.price),
-    persistentHash<Boolean>(j.success)
-  ]);
-}
-
-// Order-sensitive hash chain over the whole ledger — the value we commit to.
-circuit ledgerHash(jobs: Vector<64, Job>): Bytes<32> {
-  return fold(
-    (acc, j) => persistentHash<Vector<2, Bytes<32>>>([acc, jobLeaf(j)]),
-    pad(32, "agentmkt:ledger:v1"),
-    jobs
-  );
+// The commitment an agent publishes: hiding and binding over the whole
+// aggregate, salted so two agents with identical histories do not collide.
+export pure circuit statsCommit(
+  total: Uint<64>,
+  successes: Uint<64>,
+  volume: Uint<64>,
+  salt: Bytes<32>
+): Bytes<32> {
+  return persistentCommit<Vector<4, Bytes<32>>>([
+    pad(32, "agentmkt:stats:v1"),
+    persistentHash<Uint<64>>(total),
+    persistentHash<Uint<64>>(successes),
+    persistentHash<Uint<64>>(volume)
+  ], salt);
 }
 
 // ---------------------------------------------------------------------------
@@ -132,16 +147,62 @@ export circuit withdrawBond(amount: Uint<64>): [] {
 // Reputation
 // ---------------------------------------------------------------------------
 
-// Publish / rotate the commitment to the private job ledger. The witness ledger
-// is authoritative; the client appends a job locally, then calls this.
-export circuit updateReputation(): [] {
+// Register an agent by committing to a zero aggregate. Required before any
+// update, and this is the only circuit that may publish a commitment the caller
+// did not derive from a previous one — which is exactly what stops an agent
+// from starting life with a fabricated history.
+export circuit registerAgent(): [] {
   const id = disclose(agentIdFrom(callerSecret()));
-  const commit = disclose(persistentCommit<Bytes<32>>(ledgerHash(jobLedger()), ledgerSalt()));
-  reputationCommitments.insert(id, commit);
+  assert(!reputationCommitments.member(id), "agent already registered");
+  reputationCommitments.insert(id, disclose(statsCommit(0, 0, 0, ledgerSalt())));
 }
 
-// The ZK moment. Aggregate over the private ledger, check it against the
-// on-chain commitment, disclose only the boolean.
+// Fold exactly one settled escrow into the caller's private aggregate.
+//
+// The job's amount and outcome are read off the escrow record rather than
+// supplied by the caller, so an agent cannot invent work, inflate a price, or
+// call a failure a success. `countedEscrows` stops the same settlement being
+// counted twice. O(1) — no ledger, no fold.
+export circuit updateReputation(escrowId: Bytes<32>): [] {
+  const eid = disclose(escrowId);
+  assert(escrows.member(eid), "unknown escrow");
+  const e = escrows.lookup(eid);
+
+  const id = disclose(agentIdFrom(callerSecret()));
+  assert(id == e.seller, "only the seller can record this job");
+  assert(
+    e.state == EscrowState.RELEASED || e.state == EscrowState.SLASHED,
+    "escrow has not settled"
+  );
+  assert(!countedEscrows.member(eid), "escrow already counted");
+  assert(reputationCommitments.member(id), "agent not registered");
+
+  // Open the committed aggregate. Binding: only the true predecessor opens it.
+  const prev = reputationStats();
+  const salt = ledgerSalt();
+  assert(
+    disclose(statsCommit(prev[0], prev[1], prev[2], salt) == reputationCommitments.lookup(id)),
+    "aggregate does not match the on-chain commitment"
+  );
+
+  // A release is a success worth its escrow amount; a slash is a failure worth
+  // nothing. Both count toward the total, so the success rate cannot be gamed
+  // by simply never recording the bad ones — the escrow is settled either way
+  // and the agent needs the total to move to keep proving anything later.
+  const succeeded = e.state == EscrowState.RELEASED;
+  const nextTotal     = (prev[0] + 1) as Uint<64>;
+  const nextSuccesses = (succeeded ? (prev[1] + 1) : prev[1]) as Uint<64>;
+  const nextVolume    = (succeeded ? (prev[2] + e.amount) : prev[2]) as Uint<64>;
+
+  reputationCommitments.insert(
+    id,
+    disclose(statsCommit(nextTotal, nextSuccesses, nextVolume, salt))
+  );
+  countedEscrows.insert(eid);
+}
+
+// The ZK moment. Open the private aggregate against the on-chain commitment and
+// disclose one boolean about it — never the counts, the rate, or the volume.
 export circuit proveReputation(
   minJobs: Uint<64>,
   minRateBps: Uint<64>,
@@ -152,31 +213,19 @@ export circuit proveReputation(
   const id = disclose(agentIdFrom(callerSecret()));
   assert(reputationCommitments.member(id), "no reputation commitment");
 
-  const jobs = jobLedger();
-  assert(
-    disclose(persistentCommit<Bytes<32>>(ledgerHash(jobs), ledgerSalt())
-             == reputationCommitments.lookup(id)),
-    "ledger does not match on-chain commitment"
-  );
-
-  // acc = [total, successes, volume]; total/successes bounded by LEDGER_CAP (64)
-  // and minRateBps <= 10000, so the products stay well inside Uint<64>.
-  // Expression-bodied lambda (no block / `return` — Compact folds want an expr).
-  const stats = fold(
-    (acc, j) => [
-      (j.client != default<Bytes<32>>) ? (acc[0] + 1) as Uint<64> : acc[0],
-      (j.client != default<Bytes<32>> && j.success) ? (acc[1] + 1) as Uint<64> : acc[1],
-      (j.client != default<Bytes<32>> && j.success) ? (acc[2] + j.price) as Uint<64> : acc[2]
-    ],
-    [0 as Uint<64>, 0 as Uint<64>, 0 as Uint<64>],
-    jobs
-  );
+  const stats = reputationStats();
   const total = stats[0];
   const successes = stats[1];
   const volume = stats[2];
 
+  assert(
+    disclose(statsCommit(total, successes, volume, ledgerSalt())
+             == reputationCommitments.lookup(id)),
+    "aggregate does not match the on-chain commitment"
+  );
+
   const okJobs = successes >= minJobs;
-  // successes / total >= minRateBps / 10000
+  // successes / total >= minRateBps / 10000, in integers.
   const okRate = (successes * 10000) as Uint<64> >= (total * minRateBps) as Uint<64>;
   const okVolume = volume >= minVolume;
   return disclose(okJobs && okRate && okVolume);
@@ -212,6 +261,28 @@ export circuit markDelivered(escrowId: Bytes<32>): [] {
   });
 }
 
+// KNOWN LIMITATION — seller linkability.
+//
+// `EscrowRecord.seller` is the agent id in the clear, so anyone can filter
+// `escrows` by seller and count their settlements, read the amounts, and see
+// the outcomes. Now that reputation is earned through escrows rather than
+// self-reported, that makes a seller's job count and volume publicly derivable
+// — which is precisely what `proveReputation` exists to avoid disclosing.
+//
+// The two properties trade off, and only one design gets both:
+//   · self-reported ledger  -> private, but an agent can invent a history
+//   · escrow-bound (today)  -> sound, but the history is publicly countable
+//   · escrow-bound with a committed seller -> both
+//
+// The fix is to store `persistentCommit(sellerAgentId, escrowNonce)` in place
+// of `seller`, have the seller prove the opening in `markDelivered` and
+// `updateReputation` (no disclosure), and have the buyer disclose the opening
+// in `dispute` so the arbiter can still slash the right bond. Disputes would
+// then be the single place an identity surfaces — the same shape as
+// liquidation elsewhere.
+//
+// Asserted, not hand-waved: see the disclosure-surface case in
+// src/lib/midnight/demo-market.test.ts.
 export circuit release(escrowId: Bytes<32>): [] {
   const eid = disclose(escrowId);
   assert(escrows.member(eid), "unknown escrow");

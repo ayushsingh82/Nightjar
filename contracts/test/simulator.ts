@@ -13,10 +13,13 @@ import {
   type Ledger,
 } from "../src/managed/marketplace/contract/index.js";
 import {
+  applySettlement,
   emptyPrivateState,
   witnesses,
+  ZERO_STATS,
   type AgentPrivateState,
   type Job,
+  type ReputationStats,
 } from "../src/witnesses";
 
 const COIN_PK = "00".repeat(32);
@@ -98,8 +101,17 @@ export class MarketSim {
 
   // --- reputation --------------------------------------------------
 
-  updateReputation(ps: AgentPrivateState) {
-    return this.call(ps, (ctx) => this.contract.impureCircuits.updateReputation(ctx));
+  registerAgent(ps: AgentPrivateState) {
+    return this.call(ps, (ctx) => this.contract.impureCircuits.registerAgent(ctx));
+  }
+
+  /**
+   * Fold one settled escrow into the caller's aggregate. The contract reads the
+   * amount and outcome off the escrow, so `ps.stats` must already be whatever
+   * the previous commitment was over — see `applySettlement`.
+   */
+  updateReputation(ps: AgentPrivateState, escrowId: Uint8Array) {
+    return this.call(ps, (ctx) => this.contract.impureCircuits.updateReputation(ctx, escrowId));
   }
 
   proveReputation(ps: AgentPrivateState, minJobs: bigint, minRateBps: bigint, minVolume: bigint) {
@@ -141,11 +153,61 @@ export class MarketSim {
   }
 }
 
-/** A private job-ledger state for one agent. */
-export function agentState(secret: Uint8Array, salt: Uint8Array, jobLedger: Job[] = []): AgentPrivateState {
-  return { callerSecret: secret, ledgerSalt: salt, jobLedger };
+/** A private state for one agent, with an explicit committed aggregate. */
+export function agentState(
+  secret: Uint8Array,
+  salt: Uint8Array,
+  stats: ReputationStats = { ...ZERO_STATS },
+  jobs: Job[] = [],
+): AgentPrivateState {
+  return { callerSecret: secret, ledgerSalt: salt, stats, jobs };
 }
 
 export function job(client: Uint8Array, price: bigint, success: boolean): Job {
   return { client, price, success };
+}
+
+/**
+ * Build a seller's committed aggregate the only way the contract allows: by
+ * running real escrows through it.
+ *
+ * Registers the seller, then for each spec opens an escrow from `buyer`,
+ * delivers, and either releases it or has the arbiter slash it — calling
+ * `updateReputation` after each so the on-chain commitment tracks. Returns the
+ * seller's private state, whose `stats` open that commitment.
+ *
+ * Tests use this instead of handing an agent a ledger, because handing an agent
+ * a ledger is precisely what the contract no longer accepts.
+ */
+export async function earnStats(
+  sim: MarketSim,
+  opts: {
+    seller: Uint8Array;
+    sellerSalt: Uint8Array;
+    buyer: Uint8Array;
+    arbiter: Uint8Array;
+    jobs: Array<{ price: bigint; success: boolean }>;
+  },
+): Promise<AgentPrivateState> {
+  let ps = agentState(opts.seller, opts.sellerSalt);
+  await sim.registerAgent(ps);
+
+  const sellerId = sim.agentId(opts.seller);
+  for (const [i, j] of opts.jobs.entries()) {
+    const eid = new Uint8Array(32);
+    crypto.getRandomValues(eid);
+    eid[0] = i & 0xff; // keep ids distinct even if the RNG is stubbed
+
+    await sim.openEscrow(opts.buyer, eid, sellerId, j.price);
+    await sim.markDelivered(opts.seller, eid);
+    if (j.success) {
+      await sim.release(opts.buyer, eid);
+    } else {
+      await sim.dispute(opts.buyer, eid);
+      await sim.resolveDispute(opts.arbiter, eid, true);
+    }
+    await sim.updateReputation(ps, eid);
+    ps = agentState(opts.seller, opts.sellerSalt, applySettlement(ps.stats, j.price, j.success));
+  }
+  return ps;
 }

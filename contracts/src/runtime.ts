@@ -13,7 +13,7 @@
 // its bundler resolves `./x` to `./x.ts` but does not rewrite `./x.js`.
 import type { MarketSim } from "../test/simulator";
 import { agentState, job as mkJob } from "../test/simulator";
-import type { AgentPrivateState, Job } from "./witnesses";
+import { applySettlement, ZERO_STATS, type AgentPrivateState, type Job, type ReputationStats } from "./witnesses";
 import { pureCircuits } from "./managed/marketplace/contract/index.js";
 
 export type AgentRole = "buyer" | "seller";
@@ -21,7 +21,13 @@ export type AgentRole = "buyer" | "seller";
 export class Agent {
   readonly secret: Uint8Array;
   readonly salt: Uint8Array;
+  /** The aggregate the on-chain commitment is over. Advances only in lockstep
+   *  with `updateReputation`; never edited directly. */
+  private stats: ReputationStats = { ...ZERO_STATS };
+  /** The agent's own record of its work. Display only — no circuit reads it. */
   private ledger: Job[] = [];
+  /** Whether `registerAgent` has been accepted for this identity. */
+  private registered = false;
 
   constructor(
     readonly name: string,
@@ -38,15 +44,31 @@ export class Agent {
   }
 
   get privateState(): AgentPrivateState {
-    return agentState(this.secret, this.salt, this.ledger);
+    return agentState(this.secret, this.salt, this.stats, this.ledger);
+  }
+
+  get reputation(): ReputationStats {
+    return { ...this.stats };
+  }
+
+  get isRegistered(): boolean {
+    return this.registered;
+  }
+
+  markRegistered(): void {
+    this.registered = true;
   }
 
   recordJob(job: Job): void {
     this.ledger.push(job);
   }
 
-  seedLedger(jobs: Job[]): void {
-    this.ledger = [...jobs];
+  /**
+   * Mirror in-circuit `updateReputation`. Called immediately after the contract
+   * accepts one, so the next proof opens the commitment the chain now holds.
+   */
+  settle(amount: bigint, succeeded: boolean): void {
+    this.stats = applySettlement(this.stats, amount, succeeded);
   }
 
   get jobCount(): number {
@@ -81,22 +103,32 @@ export async function runJob(
   spec: JobSpec,
 ): Promise<JobOutcome> {
   const succeeds = spec.succeeds ?? true;
+  // A seller has to be registered before any settlement can be folded in — the
+  // zero commitment is what later transitions are anchored to.
+  if (!seller.isRegistered) {
+    await sim.registerAgent(seller.privateState);
+    seller.markRegistered();
+  }
   await sim.openEscrow(buyer.secret, spec.escrowId, seller.id, spec.price);
   await sim.markDelivered(seller.secret, spec.escrowId);
 
   if (succeeds) {
     await sim.release(buyer.secret, spec.escrowId);
-    const job = mkJob(buyer.id, spec.price, true);
-    seller.recordJob(job);
+    seller.recordJob(mkJob(buyer.id, spec.price, true));
     buyer.recordJob(mkJob(seller.id, spec.price, true));
-    await sim.updateReputation(seller.privateState);
+    // The contract reads the amount and outcome off the settled escrow, so the
+    // seller's aggregate is advanced with the state it was committed at, then
+    // moved forward to match.
+    await sim.updateReputation(seller.privateState, spec.escrowId);
+    seller.settle(spec.price, true);
     return { escrowId: spec.escrowId, price: spec.price, released: true, disputed: false };
   }
 
   await sim.dispute(buyer.secret, spec.escrowId);
   await sim.resolveDispute(arbiterSecret, spec.escrowId, true);
   seller.recordJob(mkJob(buyer.id, spec.price, false));
-  await sim.updateReputation(seller.privateState);
+  await sim.updateReputation(seller.privateState, spec.escrowId);
+  seller.settle(spec.price, false);
   return { escrowId: spec.escrowId, price: spec.price, released: false, disputed: true };
 }
 
@@ -138,33 +170,50 @@ export function randomEscrowId(): Uint8Array {
 }
 
 // ---------------------------------------------------------------------------
-// Demo seed — a seller history that clears the marketplace badge
-// (>= 50 jobs, >= 95% success, >= $10k volume).
+// Demo history — earned, not asserted
+//
+// The first cut handed the seller a fabricated 55-job ledger. That no longer
+// works, and the reason is the point: reputation now advances only through
+// `updateReputation`, which reads its amount and outcome off an escrow that
+// actually settled on this contract. A history has to be *run*.
 // ---------------------------------------------------------------------------
 
 export const DEMO_BADGE = { minJobs: 50n, minRateBps: 9500n, minVolume: 10_000n } as const;
 
-export function demoSellerLedger(clientCount = 40): Job[] {
-  const jobs: Job[] = [];
-  // 55 jobs, 2 failures -> 53/55 = 96.3%, volume 53 * 300 = 15_900
-  for (let i = 0; i < 55; i++) {
-    const client = new Uint8Array(32).fill((i % clientCount) + 1);
-    jobs.push(mkJob(client, 300n, i >= 2));
-  }
-  return jobs;
-}
+export type HistorySpec = {
+  /** Total jobs to run. */
+  jobs: number;
+  /** How many of them the seller botches (disputed, arbiter slashes). */
+  failures: number;
+  price: bigint;
+};
+
+/** 55 jobs, 2 failures -> 53/55 = 96.3%, volume 53 * 300 = 15,900. Clears DEMO_BADGE. */
+export const DEMO_SELLER_HISTORY: HistorySpec = { jobs: 55, failures: 2, price: 300n };
+
+/** 9 jobs, 1 failure -> 8/9 = 88.9%, volume 960. Nowhere near the badge, on purpose:
+ *  the UI needs an agent for whom the circuit honestly returns false. */
+export const NEWCOMER_HISTORY: HistorySpec = { jobs: 9, failures: 1, price: 120n };
 
 /**
- * A newcomer's history — real, but nowhere near DEMO_BADGE. Used by the UI to
- * show the other half of the guarantee: an agent whose ledger does not support
- * the thresholds gets `false` out of the circuit and simply has no badge.
+ * Earn a seller's history by running real escrows through the contract.
+ *
+ * Registers the seller if needed, then runs `spec.jobs` jobs with the failures
+ * first, so a partially-run history is always the pessimistic one. Every job is
+ * a genuine open -> deliver -> release (or dispute -> slash) and a genuine
+ * `updateReputation`, so the aggregate the seller ends up committed to is one
+ * the contract itself computed.
  */
-export function newcomerSellerLedger(): Job[] {
-  const jobs: Job[] = [];
-  // 9 jobs, 1 failure -> 8/9 = 88.9%, volume 8 * 120 = 960
-  for (let i = 0; i < 9; i++) {
-    const client = new Uint8Array(32).fill(200 + (i % 8));
-    jobs.push(mkJob(client, 120n, i !== 3));
+export async function earnHistory(
+  sim: MarketSim,
+  buyer: Agent,
+  seller: Agent,
+  arbiterSecret: Uint8Array,
+  spec: HistorySpec = DEMO_SELLER_HISTORY,
+): Promise<JobOutcome[]> {
+  const specs: JobSpec[] = [];
+  for (let i = 0; i < spec.jobs; i++) {
+    specs.push({ escrowId: randomEscrowId(), price: spec.price, succeeds: i >= spec.failures });
   }
-  return jobs;
+  return runJobs(sim, buyer, seller, arbiterSecret, specs);
 }

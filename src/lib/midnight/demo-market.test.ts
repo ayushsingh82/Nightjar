@@ -34,6 +34,19 @@ function commitmentFor(snap: MarketSnapshot, agentId: string): string | undefine
   return snap.chain.reputationCommitments.find((c) => c.agentId === agentId)?.commitment;
 }
 
+/** The escrow just opened — the only one still awaiting delivery. */
+function fundedEscrow(snap: MarketSnapshot) {
+  const e = snap.chain.escrows.find((x) => x.state === "FUNDED");
+  if (!e) throw new Error("no FUNDED escrow in the snapshot");
+  return e;
+}
+
+function escrowById(snap: MarketSnapshot, id: string) {
+  const e = snap.chain.escrows.find((x) => x.escrowId === id);
+  if (!e) throw new Error(`escrow ${id} not in the snapshot`);
+  return e;
+}
+
 describe("badge derivation", () => {
   it("renders the badge from the proven thresholds, not from local stats", () => {
     const weak: PublishedBadge = {
@@ -107,12 +120,19 @@ describe("market session — badge → hire → escrow → deliver → release",
       successRateBps: 9636,
     });
     expect(nomad.stats.totalJobs).toBe(9);
-    expect(orion.stats.totalJobs).toBe(0);
+    // The buyer now has a record too, because seeding runs real escrows and it
+    // is the counterparty on every one: 53 of Atlas's 55 released, plus 8 of
+    // Nomad's 9. A buyer accrues history by buying.
+    expect(orion.stats.totalJobs).toBe(61);
 
-    // Bonds and commitments are on chain; job rows are not.
-    expect(snap.chain.bonds.find((b) => b.agentId === atlas.agentId)?.amount).toBe("20000");
+    // Bonds and commitments are on chain. Atlas staked 20,000 but earned its
+    // history for real, and the two jobs it botched were slashed at 300 each —
+    // so the bond reads 19,400. A reputation that cannot be invented is one
+    // that costs something to build.
+    expect(snap.chain.bonds.find((b) => b.agentId === atlas.agentId)?.amount).toBe("19400");
     expect(commitmentFor(snap, atlas.agentId)).toMatch(/^[0-9a-f]{64}$/);
-    expect(snap.chain.serialized).not.toContain(atlas.jobs[0].client);
+    // The salt never appears. The counterparties do, via the escrow records —
+    // see the disclosure-surface assertions in the dispute case below.
     expect(snap.chain.serialized).not.toContain(atlas.ledgerSalt);
 
     // --- the strong seller clears the badge -----------------------------
@@ -149,8 +169,10 @@ describe("market session — badge → hire → escrow → deliver → release",
 
     // --- hire on the badge alone -----------------------------------------
     snap = await session.apply({ type: "hire", buyer: ORION, seller: atlas.key, amount: "2500" });
-    expect(snap.chain.escrowCount).toBe("1");
-    const escrow = snap.chain.escrows[0];
+    // 64 seeded settlements (55 + 9) came first, so this hire is number 65.
+    expect(snap.chain.escrowCount).toBe("65");
+    // Seeded history is real escrows now, so pick the one just opened.
+    const escrow = fundedEscrow(snap);
     expect(escrow.state).toBe("FUNDED");
     expect(escrow.buyer).toBe(orion.agentId);
     expect(escrow.seller).toBe(atlas.agentId);
@@ -158,16 +180,19 @@ describe("market session — badge → hire → escrow → deliver → release",
     expect(escrow.escrowId).toMatch(/^[0-9a-f]{64}$/);
 
     snap = await session.apply({ type: "markDelivered", escrowId: escrow.escrowId });
-    expect(snap.chain.escrows[0].state).toBe("DELIVERED");
+    expect(escrowById(snap, escrow.escrowId).state).toBe("DELIVERED");
 
     const commitmentBeforeRelease = commitmentFor(snap, atlas.agentId);
     snap = await session.apply({ type: "release", escrowId: escrow.escrowId });
-    expect(snap.chain.escrows[0].state).toBe("RELEASED");
+    expect(escrowById(snap, escrow.escrowId).state).toBe("RELEASED");
 
-    // Both private ledgers grew; the seller re-committed, so the old badge is stale.
+    // Both private ledgers grew; the seller re-committed, so the old badge is
+    // stale. Atlas earned 55 seeded jobs (53 released at 300 = 15,900) and this
+    // one at 2,500, so 56 jobs and 18,400 volume. Orion is on 61 seeded plus
+    // this one.
     expect(agent(snap, ATLAS).stats.totalJobs).toBe(56);
     expect(agent(snap, ATLAS).stats.volume).toBe("18400");
-    expect(agent(snap, ORION).stats.totalJobs).toBe(1);
+    expect(agent(snap, ORION).stats.totalJobs).toBe(62);
     const commitmentAfterRelease = commitmentFor(snap, atlas.agentId);
     expect(commitmentAfterRelease).not.toBe(commitmentBeforeRelease);
     expect(badgeVerdict(badgeFor(snap, atlas.agentId), commitmentAfterRelease).kind).toBe("stale");
@@ -190,34 +215,50 @@ describe("market session — badge → hire → escrow → deliver → release",
     await session.apply({ type: "reset" });
     await session.apply({ type: "seed" });
     let snap = await session.apply({ type: "hire", buyer: ORION, seller: NOMAD, amount: "500" });
-    const escrowId = snap.chain.escrows[0].escrowId;
+    const escrowId = fundedEscrow(snap).escrowId;
     const nomadId = agent(snap, NOMAD).agentId;
     const bondBefore = snap.chain.bonds.find((b) => b.agentId === nomadId)!.amount;
+    const slashedBefore = snap.chain.slashedTotal;
 
     snap = await session.apply({ type: "markDelivered", escrowId });
     snap = await session.apply({ type: "dispute", escrowId });
-    expect(snap.chain.escrows[0].state).toBe("DISPUTED");
+    expect(escrowById(snap, escrowId).state).toBe("DISPUTED");
 
     snap = await session.apply({ type: "resolveDispute", escrowId, sellerAtFault: true });
-    expect(snap.chain.escrows[0].state).toBe("SLASHED");
-    expect(snap.chain.slashedTotal).toBe("500");
+    expect(escrowById(snap, escrowId).state).toBe("SLASHED");
+    // Seeded failures already slashed some bond, so assert the delta this
+    // dispute caused rather than an absolute the history moves.
+    expect(BigInt(snap.chain.slashedTotal) - BigInt(slashedBefore)).toBe(500n);
     expect(snap.chain.bonds.find((b) => b.agentId === nomadId)!.amount).toBe(
       (BigInt(bondBefore) - 500n).toString(),
     );
 
-    // The failed job landed in the seller's private ledger, tagged with the
-    // escrow that produced it — that one counterparty is public because the
-    // escrow record names it. Every row of prior history stays invisible.
     const nomad = agent(snap, NOMAD);
     expect(nomad.stats.totalJobs).toBe(10);
     expect(nomad.stats.successfulJobs).toBe(8);
-    const settled = nomad.jobs.filter((j) => j.escrowId);
-    expect(settled).toHaveLength(1);
-    expect(settled[0].escrowId).toBe(escrowId);
-    for (const jobRow of nomad.jobs.filter((j) => !j.escrowId)) {
-      expect(snap.chain.serialized).not.toContain(jobRow.client);
-    }
+
+    // What is still private, and it is the part the badge rests on: the salt,
+    // and the aggregate itself. The chain holds a commitment to
+    // [total, successes, volume] and none of the three numbers appears in it.
+    // Only the salt is searched for: it is 32 random bytes, so finding it would
+    // mean something. A small decimal like the volume would match by accident
+    // inside any longer number in the blob, which is a false-positive machine
+    // rather than a privacy check.
     expect(snap.chain.serialized).not.toContain(nomad.ledgerSalt);
+
+    // What is NOT private, and this is a real limitation rather than an
+    // oversight: reputation is now earned through escrows, and an escrow record
+    // names its seller in the clear. So every job has an on-chain trace, and an
+    // observer can count a seller's settlements by filtering `escrows`.
+    //
+    // The fix is to store a commitment to the seller instead of the agent id,
+    // opened only on dispute — see the note in marketplace.compact. Until then
+    // this asserts the leak rather than pretending it away.
+    const settled = nomad.jobs.filter((j) => j.escrowId);
+    expect(settled).toHaveLength(nomad.jobs.length);
+    expect(settled.at(-1)!.escrowId).toBe(escrowId);
+    const publiclyCountable = snap.chain.escrows.filter((e) => e.seller === nomad.agentId);
+    expect(publiclyCountable.length).toBe(nomad.stats.totalJobs);
   });
 
   it("refuses out-of-order lifecycle calls with the circuit's own assert", async () => {
@@ -225,7 +266,7 @@ describe("market session — badge → hire → escrow → deliver → release",
     await session.apply({ type: "reset" });
     await session.apply({ type: "seed" });
     const snap = await session.apply({ type: "hire", buyer: ORION, seller: ATLAS, amount: "100" });
-    const escrowId = snap.chain.escrows[0].escrowId;
+    const escrowId = fundedEscrow(snap).escrowId;
     await expect(session.apply({ type: "release", escrowId })).rejects.toThrow(
       /escrow not delivered/,
     );
