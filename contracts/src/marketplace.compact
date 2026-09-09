@@ -39,10 +39,11 @@ struct Job {
   success: Boolean
 }
 
-// Fixed ledger capacity — the circuit folds over exactly this many slots, so
-// this is the largest history an agent can ever prove over. 64 covers the demo
-// thresholds (>=50 jobs); raising it grows the proving key and proof time.
-const LEDGER_CAP: Uint<16> = 64;
+// Fixed ledger capacity (LEDGER_CAP) is 64 — the circuit folds over exactly this
+// many slots, so it's the largest history an agent can ever prove over. 64
+// covers the demo thresholds (>=50 jobs); raising it grows the proving key and
+// proof time. Compact has no module-level const, so `64` is written inline
+// wherever the Vector width appears; keep them in sync.
 
 // ---------------------------------------------------------------------------
 // Public (ledger) state
@@ -74,11 +75,11 @@ witness ledgerSalt(): Bytes<32>;
 // Key derivation — unique domain separator per purpose
 // ---------------------------------------------------------------------------
 
-pure circuit agentIdFrom(sk: Bytes<32>): Bytes<32> {
+export pure circuit agentIdFrom(sk: Bytes<32>): Bytes<32> {
   return persistentHash<Vector<2, Bytes<32>>>([pad(32, "agentmkt:agent:v1"), sk]);
 }
 
-pure circuit deriveArbiterPk(sk: Bytes<32>): Bytes<32> {
+export pure circuit deriveArbiterPk(sk: Bytes<32>): Bytes<32> {
   return persistentHash<Vector<2, Bytes<32>>>([pad(32, "agentmkt:arbiter:v1"), sk]);
 }
 
@@ -119,11 +120,12 @@ export circuit stakeBond(amount: Uint<64>): [] {
 }
 
 export circuit withdrawBond(amount: Uint<64>): [] {
+  const amt = disclose(amount);
   const id = disclose(agentIdFrom(callerSecret()));
   assert(bonds.member(id), "no bond staked");
   const current = bonds.lookup(id);
-  assert(disclose(amount) <= current, "bond withdrawal exceeds stake");
-  bonds.insert(id, (current - amount) as Uint<64>);
+  assert(amt <= current, "bond withdrawal exceeds stake");
+  bonds.insert(id, (current - amt) as Uint<64>);
 }
 
 // ---------------------------------------------------------------------------
@@ -166,7 +168,7 @@ export circuit proveReputation(
       (j.client != default<Bytes<32>> && j.success) ? (acc[1] + 1) as Uint<64> : acc[1],
       (j.client != default<Bytes<32>> && j.success) ? (acc[2] + j.price) as Uint<64> : acc[2]
     ],
-    [0, 0, 0],
+    [0 as Uint<64>, 0 as Uint<64>, 0 as Uint<64>],
     jobs
   );
   const total = stats[0];
@@ -185,49 +187,53 @@ export circuit proveReputation(
 // ---------------------------------------------------------------------------
 
 export circuit openEscrow(escrowId: Bytes<32>, seller: Bytes<32>, amount: Uint<64>): [] {
-  assert(!escrows.member(escrowId), "escrow id already used");
+  // escrow id, counterparties and amount are public by design.
+  const eid = disclose(escrowId);
+  const sell = disclose(seller);
+  const amt = disclose(amount);
+  assert(!escrows.member(eid), "escrow id already used");
   const buyer = disclose(agentIdFrom(callerSecret()));
-  assert(buyer != disclose(seller), "buyer and seller must differ");
+  assert(buyer != sell, "buyer and seller must differ");
   // `amount` is transferred into escrow by the token layer (out of scope here).
-  escrows.insert(escrowId, EscrowRecord {
-    buyer: buyer,
-    seller: disclose(seller),
-    amount: disclose(amount),
-    state: EscrowState.FUNDED
+  escrows.insert(eid, EscrowRecord {
+    buyer: buyer, seller: sell, amount: amt, state: EscrowState.FUNDED
   });
   escrowCount.increment(1);
 }
 
 export circuit markDelivered(escrowId: Bytes<32>): [] {
-  assert(escrows.member(escrowId), "unknown escrow");
-  const e = escrows.lookup(escrowId);
+  const eid = disclose(escrowId);
+  assert(escrows.member(eid), "unknown escrow");
+  const e = escrows.lookup(eid);
   assert(disclose(agentIdFrom(callerSecret())) == e.seller, "only the seller can deliver");
   assert(e.state == EscrowState.FUNDED, "escrow not in FUNDED state");
-  escrows.insert(escrowId, EscrowRecord {
+  escrows.insert(eid, EscrowRecord {
     buyer: e.buyer, seller: e.seller, amount: e.amount, state: EscrowState.DELIVERED
   });
 }
 
 export circuit release(escrowId: Bytes<32>): [] {
-  assert(escrows.member(escrowId), "unknown escrow");
-  const e = escrows.lookup(escrowId);
+  const eid = disclose(escrowId);
+  assert(escrows.member(eid), "unknown escrow");
+  const e = escrows.lookup(eid);
   assert(disclose(agentIdFrom(callerSecret())) == e.buyer, "only the buyer can release");
   assert(e.state == EscrowState.DELIVERED, "escrow not delivered");
   // funds -> seller (token layer).
   // Production: also insert persistentHash([escrowId, buyer, seller, amount])
   // into a `jobReceipts` Set so updateReputation can require each job leaf to
   // correspond to a settled escrow.
-  escrows.insert(escrowId, EscrowRecord {
+  escrows.insert(eid, EscrowRecord {
     buyer: e.buyer, seller: e.seller, amount: e.amount, state: EscrowState.RELEASED
   });
 }
 
 export circuit dispute(escrowId: Bytes<32>): [] {
-  assert(escrows.member(escrowId), "unknown escrow");
-  const e = escrows.lookup(escrowId);
+  const eid = disclose(escrowId);
+  assert(escrows.member(eid), "unknown escrow");
+  const e = escrows.lookup(eid);
   assert(disclose(agentIdFrom(callerSecret())) == e.buyer, "only the buyer can dispute");
   assert(e.state == EscrowState.FUNDED || e.state == EscrowState.DELIVERED, "not disputable");
-  escrows.insert(escrowId, EscrowRecord {
+  escrows.insert(eid, EscrowRecord {
     buyer: e.buyer, seller: e.seller, amount: e.amount, state: EscrowState.DISPUTED
   });
 }
@@ -235,22 +241,24 @@ export circuit dispute(escrowId: Bytes<32>): [] {
 // Only the arbiter (key fixed at deploy) can resolve. On seller fault the bond
 // is slashed by up to the escrow amount.
 export circuit resolveDispute(escrowId: Bytes<32>, sellerAtFault: Boolean): [] {
+  const eid = disclose(escrowId);
+  const fault = disclose(sellerAtFault);
   assert(deriveArbiterPk(callerSecret()) == arbiterPk, "only the arbiter can resolve");
-  assert(escrows.member(escrowId), "unknown escrow");
-  const e = escrows.lookup(escrowId);
+  assert(escrows.member(eid), "unknown escrow");
+  const e = escrows.lookup(eid);
   assert(e.state == EscrowState.DISPUTED, "escrow not disputed");
 
-  if (disclose(sellerAtFault)) {
+  if (fault) {
     const sellerBond = bonds.member(e.seller) ? bonds.lookup(e.seller) : 0;
     const slash = sellerBond < e.amount ? sellerBond : e.amount;
     bonds.insert(e.seller, (sellerBond - slash) as Uint<64>);
     slashedTotal = (slashedTotal + slash) as Uint<64>;
-    escrows.insert(escrowId, EscrowRecord {
+    escrows.insert(eid, EscrowRecord {
       buyer: e.buyer, seller: e.seller, amount: e.amount, state: EscrowState.SLASHED
     });
     // buyer refunded amount + slash by the token layer
   } else {
-    escrows.insert(escrowId, EscrowRecord {
+    escrows.insert(eid, EscrowRecord {
       buyer: e.buyer, seller: e.seller, amount: e.amount, state: EscrowState.RELEASED
     });
   }

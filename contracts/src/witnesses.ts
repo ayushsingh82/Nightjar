@@ -3,7 +3,9 @@
 // Runs locally in each agent's client. The job ledger never leaves the device;
 // only the commitment and ZK proofs go on-chain.
 
-type WitnessContext<PS> = { privateState: PS; ledger: any };
+import type { Ledger, Witnesses } from "./managed/marketplace/contract/index.js";
+
+type WitnessContext<PS> = { privateState: PS; ledger: Ledger };
 
 export const LEDGER_CAP = 64; // must match LEDGER_CAP in marketplace.compact
 
@@ -31,7 +33,7 @@ function padLedger(jobs: Job[]): Job[] {
   return out;
 }
 
-export const witnesses = {
+export const witnesses: Witnesses<AgentPrivateState> = {
   callerSecret: (
     ctx: WitnessContext<AgentPrivateState>,
   ): [AgentPrivateState, Uint8Array] => [ctx.privateState, ctx.privateState.callerSecret],
