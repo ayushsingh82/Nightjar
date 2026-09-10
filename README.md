@@ -208,6 +208,11 @@ npm run test:prove
 npm run proof-server:down
 ```
 
+`proof-server:up` mounts a named volume at `/.cache/midnight/zk-params`. The
+container runs with `--rm`, so without it every session re-downloads ~50s of
+proving parameters before the server will answer `/health`; with it, that
+happens once per machine and startup is about four seconds.
+
 A Midnight wallet extension (Lace or 1AM) is required to connect the wallet
 panel; everything else runs without one.
 

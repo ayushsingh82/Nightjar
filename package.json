@@ -10,7 +10,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "sync:zk": "mkdir -p public/zk/marketplace && cp -R contracts/src/managed-zk/marketplace/keys contracts/src/managed-zk/marketplace/zkir public/zk/marketplace/",
-    "proof-server:up": "docker run -d --rm --name nightjar-proof-server -p 6300:6300 midnightnetwork/proof-server:latest",
+    "proof-server:up": "docker run -d --rm --name nightjar-proof-server -p 6300:6300 -v midnight-zk-params:/.cache/midnight/zk-params midnightnetwork/proof-server:latest",
     "proof-server:down": "docker rm -f nightjar-proof-server",
     "test:prove": "PROVE_LIVE=1 vitest run src/lib/midnight/prove-live.test.ts"
   },

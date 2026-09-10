@@ -149,7 +149,14 @@ Score so far: **6 milestones done (§1–§6).**
   - `registerAgent` — 1.5s
   - **`proveReputation` — 2.4s**, 4.9KB proven transaction. That number only
     exists because the circuit went from a 64-slot fold (291MB key) to an
-    incremental aggregate (9.5MB).
+    incremental aggregate (9.5MB). Stable across cold and warm runs, unlike the
+    sibling project's 19MB `borrow` key — nothing here is big enough to pay a
+    noticeable load cost.
+  - `proof-server:up` mounts a named volume at `/.cache/midnight/zk-params`.
+    The container is `--rm`, so without it every session re-downloaded ~50s of
+    proving parameters before the server would answer `/health`; with it,
+    startup is about four seconds. The volume is shared with the sibling
+    project — same parameters.
 - [x] Live entry point — `src/lib/midnight/live.ts`: `connectMarket()` builds a
   `MarketClient` on the real assembler, `checkLiveReadiness()` pre-flights the
   artifacts and the wallet's network. The assembler is imported lazily, so the
