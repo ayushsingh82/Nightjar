@@ -1,4 +1,4 @@
-// agent-commerce — the "prove → pay fees → submit → confirm" pipeline.
+// Nightjar — the "prove → pay fees → submit → confirm" pipeline.
 //
 // Composes the DApp Connector API's proving, balancing and relay methods with
 // the `proof-server.ts` phase machine so every escrow / reputation call renders the

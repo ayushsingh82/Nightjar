@@ -1,4 +1,4 @@
-// agent-commerce — the scripted agent runtime against the simulator.
+// Nightjar — the scripted agent runtime against the simulator.
 
 import { describe, expect, it } from "vitest";
 import { MarketSim } from "./simulator.js";

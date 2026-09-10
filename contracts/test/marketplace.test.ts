@@ -1,4 +1,4 @@
-// agent-commerce — core contract behaviour against the in-memory simulator
+// Nightjar — core contract behaviour against the in-memory simulator
 // (no proof server). Covers the milestone-1 checklist: escrow lifecycle,
 // slashing math, reputation monotonicity, and proof soundness.
 
@@ -20,7 +20,7 @@ const NONCE = new Uint8Array(32).fill(0xa1);
 const commitTo = (sim: MarketSim, secret: Uint8Array) =>
   sim.sellerCommitment(sim.agentId(secret), NONCE);
 
-describe("agent-commerce marketplace core", () => {
+describe("nightjar marketplace core", () => {
   let sim: MarketSim;
 
   beforeEach(async () => {

@@ -1,4 +1,4 @@
-// agent-commerce — minimal agent runtime.
+// Nightjar — minimal agent runtime.
 //
 // Each agent has an identity secret, a ledger salt, and a private job ledger.
 // `runJob` scripts one buyer↔seller task end to end against the contract:

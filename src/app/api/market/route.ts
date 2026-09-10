@@ -1,4 +1,4 @@
-// agent-commerce — the UI's contract endpoint (plan.md §5).
+// Nightjar — the UI's contract endpoint (plan.md §5).
 //
 // The compiled contract loads its WASM through Node `fs`, so it cannot live in
 // the browser bundle. Circuits therefore run here, in the Node runtime, and the

@@ -1,90 +1,98 @@
 "use client";
 
-// agent-commerce — connect / status / DUST / proof-server panel. Wiring surface
-// for the marketplace, seller and buyer dashboards (plan.md §5).
+// Nightjar — connect / status / DUST / proof-server panel.
+//
+// The wallet session here is real: DApp Connector enumeration, the unshielded
+// address, the DUST balance the fees would come out of, and a proof-server
+// health check. What it is *not* is what drives the console tabs — see the
+// execution notice there.
 
 import { useWallet } from "@/lib/midnight";
+import { Button, Note, Panel, Row, VisibilityTag, shortAddress } from "./market-ui";
 
-function short(addr: string): string {
-  return addr.length > 16 ? `${addr.slice(0, 10)}…${addr.slice(-6)}` : addr;
-}
+export function WalletPanel({ onClose }: { onClose?: () => void }) {
+  const {
+    status,
+    address,
+    error,
+    dust,
+    proofServer,
+    availableWallets,
+    connect,
+    disconnect,
+    refresh,
+  } = useWallet();
 
-export function WalletPanel() {
-  const { status, address, error, dust, proofServer, availableWallets, connect, disconnect, refresh } =
-    useWallet();
+  const statusTone =
+    status === "connected"
+      ? "text-private"
+      : status === "error"
+        ? "text-danger"
+        : "text-fg-dim";
 
   return (
-    <div className="w-full max-w-md rounded-xl border border-black/10 dark:border-white/15 p-5 text-sm flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <span className="font-medium">Midnight wallet</span>
-        <span
-          className={
-            status === "connected"
-              ? "text-green-600"
-              : status === "error"
-                ? "text-red-600"
-                : "text-zinc-500"
-          }
-        >
+    <Panel
+      title="Midnight wallet"
+      right={
+        <span className={`text-xs font-mono ${statusTone}`}>
           {status}
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="ml-3 text-fg-dim hover:text-fg-muted"
+              aria-label="Close"
+            >
+              ✕
+            </button>
+          )}
         </span>
-      </div>
-
+      }
+    >
       {status !== "connected" ? (
         <>
-          <p className="text-zinc-500">
+          <p className="text-sm text-fg-muted">
             {availableWallets.length === 0
-              ? "No Midnight wallet detected — install an extension and refresh."
+              ? "No Midnight wallet detected — install an extension and refresh. The console runs without one."
               : `Detected: ${availableWallets.map((w) => w.name).join(", ")}`}
           </p>
-          <button
-            type="button"
-            onClick={() => void connect()}
+          <Button
+            full
             disabled={status === "connecting"}
-            className="h-10 rounded-full bg-foreground text-background disabled:opacity-50"
+            onClick={() => void connect()}
           >
             {status === "connecting" ? "Connecting…" : "Connect wallet"}
-          </button>
-          {error && <p className="text-red-600">{error}</p>}
+          </Button>
+          {error && <p className="text-xs text-danger">{error}</p>}
         </>
       ) : (
         <>
-          <div className="flex justify-between">
-            <span className="text-zinc-500">Address</span>
-            <code title={address ?? ""}>{address ? short(address) : "—"}</code>
+          <div className="flex justify-end">
+            <VisibilityTag tone="public" />
           </div>
-          <div className="flex justify-between">
-            <span className="text-zinc-500">DUST (fees)</span>
-            <span>{dust ? `${dust.balance} / cap ${dust.cap}` : "—"}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-zinc-500">Proof server</span>
-            <span className={proofServer?.ok ? "text-green-600" : "text-amber-600"}>
-              {proofServer ? proofServer.detail : "checking…"}
-            </span>
-          </div>
-          <p className="text-xs text-zinc-500 border-t border-black/10 dark:border-white/15 pt-2">
-            Settlement is paid in DUST by the wallet as a relayer — the on-chain
-            fee transaction does not carry the buyer↔seller edge.
-          </p>
+          <Row label="Address">
+            <span title={address ?? ""}>{address ? shortAddress(address, 6) : "—"}</span>
+          </Row>
+          <Row label="DUST (fees)" tone="public">
+            {dust ? `${dust.balance} / cap ${dust.cap}` : "—"}
+          </Row>
+          <Row label="Proof server" tone={proofServer?.ok ? "private" : "danger"}>
+            {proofServer ? proofServer.detail : "checking…"}
+          </Row>
+          <Note>
+            Settlement is paid in DUST by the wallet as a relayer — the on-chain fee
+            transaction does not carry the buyer↔seller edge.
+          </Note>
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => void refresh()}
-              className="h-9 flex-1 rounded-full border border-black/10 dark:border-white/15"
-            >
+            <Button variant="ghost" full onClick={() => void refresh()}>
               Refresh
-            </button>
-            <button
-              type="button"
-              onClick={disconnect}
-              className="h-9 flex-1 rounded-full border border-black/10 dark:border-white/15"
-            >
+            </Button>
+            <Button variant="ghost" full onClick={disconnect}>
               Disconnect
-            </button>
+            </Button>
           </div>
         </>
       )}
-    </div>
+    </Panel>
   );
 }

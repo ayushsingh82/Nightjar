@@ -1,4 +1,4 @@
-// agent-commerce — the proving step, for real.
+// Nightjar — the proving step, for real.
 //
 // Everything else in the suite stops short of a proof: the wallet is the only
 // prover a user has, there is no headless wallet for this stack, and the
@@ -22,7 +22,7 @@ import { proofServerProvingProvider, proofServerVersion } from "./proof-server-p
 import { HttpZKConfigProvider } from "./zk-config";
 import { emptyPrivateState } from "../../../contracts/src/witnesses";
 
-const PROOF_SERVER = process.env.AGENTMKT_PROOF_SERVER ?? "http://127.0.0.1:6300";
+const PROOF_SERVER = process.env.NIGHTJAR_PROOF_SERVER ?? "http://127.0.0.1:6300";
 const MANAGED = join(process.cwd(), "contracts/src/managed-zk/marketplace");
 const KEYED = existsSync(join(MANAGED, "keys/proveReputation.prover"));
 
@@ -69,9 +69,12 @@ beforeAll(async () => {
   serverVersion = await proofServerVersion(PROOF_SERVER);
   serverUp = serverVersion !== null;
   if (!serverUp) {
-    console.warn(
-      `\n  [prove-live] no proof server at ${PROOF_SERVER} — skipping. Start one with:\n` +
-        "    npm run proof-server:up\n",
+    // A skip here would be silent, and the only reason to set PROVE_LIVE=1 is to
+    // actually prove — so a missing server is a failure, not a skip. `npm test`
+    // never reaches this file, so nothing else is affected.
+    throw new Error(
+      `no proof server at ${PROOF_SERVER} — start one with \`npm run proof-server:up\`, ` +
+        "or point PROOF_SERVER at a running one",
     );
   }
 });
@@ -80,7 +83,6 @@ const suite = KEYED ? describe : describe.skip;
 
 suite("proving against a real proof server", () => {
   it("reports a version", () => {
-    if (!serverUp) return;
     expect(serverVersion).toBeTruthy();
   });
 
@@ -92,7 +94,6 @@ suite("proving against a real proof server", () => {
    * proving time a demo can actually carry.
    */
   it("proves registerAgent and proveReputation end to end", async () => {
-    if (!serverUp) return;
 
     const { MidnightTxAssembler, serializeContractStateHex } = await import("./tx-assembler");
 

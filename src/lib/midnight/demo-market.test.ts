@@ -1,4 +1,4 @@
-// agent-commerce — the demo the UI runs, asserted end to end against real
+// Nightjar — the demo the UI runs, asserted end to end against real
 // ledger state (plan.md §6). Every number the dashboards render comes out of
 // `MarketSnapshot`, so checking the snapshot against the contract's own ledger
 // is what makes "the UI's numbers match the chain" a fact rather than a claim.

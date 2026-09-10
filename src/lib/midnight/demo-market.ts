@@ -1,4 +1,4 @@
-// agent-commerce — the in-process market session that backs the UI (plan.md §5/§6).
+// Nightjar — the in-process market session that backs the UI (plan.md §5/§6).
 //
 // SERVER ONLY. Deliberately not re-exported from `./index` — the generated
 // contract pulls in `@midnight-ntwrk/compact-runtime`, whose WASM is loaded with
@@ -620,7 +620,7 @@ function diffChain(before: ChainView, after: ChainView): string[] {
 // Module singleton. Survives Next's dev-server module reloads via globalThis.
 // ---------------------------------------------------------------------------
 
-const SESSION_KEY = Symbol.for("agentmkt.market-session");
+const SESSION_KEY = Symbol.for("nightjar.market-session");
 type Holder = { [SESSION_KEY]?: Promise<MarketSession> };
 
 export function marketSession(): Promise<MarketSession> {

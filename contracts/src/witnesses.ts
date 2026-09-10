@@ -1,4 +1,4 @@
-// agent-commerce — private state + witness implementations for marketplace.compact
+// Nightjar — private state + witness implementations for marketplace.compact
 //
 // Runs locally in each agent's client. Nothing here leaves the device: the
 // chain only ever holds `statsCommit(stats, salt)`.

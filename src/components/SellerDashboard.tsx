@@ -1,6 +1,6 @@
 "use client";
 
-// agent-commerce — seller dashboard (plan.md §5).
+// Nightjar — seller dashboard (plan.md §5).
 //
 // Three things a seller has: a private job ledger that never leaves the device,
 // public collateral + a commitment to that ledger, and the ability to turn the
@@ -36,8 +36,8 @@ export function SellerDashboard() {
             onClick={() => setSelected(s.key)}
             className={`h-9 px-4 rounded-full text-sm border ${
               s.key === seller.key
-                ? "border-foreground"
-                : "border-black/10 dark:border-white/15 text-zinc-500"
+                ? "border-accent"
+                : "border-border text-fg-dim"
             }`}
           >
             Acting as {s.name}
@@ -66,7 +66,7 @@ function PrivateLedger({ seller }: { seller: AgentView }) {
     >
       <div className="max-h-80 overflow-auto -mx-1 px-1">
         <table className="w-full text-xs">
-          <thead className="text-zinc-500 sticky top-0 bg-background">
+          <thead className="text-fg-dim sticky top-0 bg-bg-raised">
             <tr className="text-left">
               <th className="font-normal py-1">#</th>
               <th className="font-normal">Client</th>
@@ -77,16 +77,16 @@ function PrivateLedger({ seller }: { seller: AgentView }) {
           </thead>
           <tbody>
             {seller.jobs.map((job, i) => (
-              <tr key={`${job.client}-${i}`} className="border-t border-black/5 dark:border-white/10">
-                <td className="py-1 text-zinc-500">{i + 1}</td>
+              <tr key={`${job.client}-${i}`} className="border-t border-border/60">
+                <td className="py-1 text-fg-dim">{i + 1}</td>
                 <td>
                   <Hex value={job.client} chars={10} />
                 </td>
                 <td className="text-right">{money(job.price)}</td>
-                <td className={`text-right ${job.success ? "text-green-600" : "text-red-600"}`}>
+                <td className={`text-right ${job.success ? "text-private" : "text-danger"}`}>
                   {job.success ? "success" : "failed"}
                 </td>
-                <td className="text-right text-zinc-500">
+                <td className="text-right text-fg-dim">
                   {job.escrowId ? (
                     <span title={`settled through escrow ${job.escrowId}`}>escrow row</span>
                   ) : (
@@ -97,7 +97,7 @@ function PrivateLedger({ seller }: { seller: AgentView }) {
             ))}
             {seller.jobs.length === 0 && (
               <tr>
-                <td colSpan={5} className="py-3 text-zinc-500">
+                <td colSpan={5} className="py-3 text-fg-dim">
                   No history yet — seed the demo.
                 </td>
               </tr>
@@ -201,8 +201,8 @@ function ProveBadge({ seller }: { seller: AgentView }) {
       </Button>
       {!hasCommitment && <Note tone="warn">Commit the ledger first — the circuit checks it.</Note>}
 
-      <div className="border-t border-black/10 dark:border-white/15 pt-3 flex flex-col gap-2">
-        <span className="text-xs text-zinc-500">Published badge</span>
+      <div className="border-t border-border pt-3 flex flex-col gap-2">
+        <span className="text-xs text-fg-dim">Published badge</span>
         <BadgePill verdict={verdict} />
         {badge && (
           <>
@@ -242,11 +242,11 @@ function DeliverQueue({
       {escrows.map((e) => (
         <div
           key={e.escrowId}
-          className="flex items-center justify-between gap-3 border-t border-black/5 dark:border-white/10 pt-2 first:border-0 first:pt-0"
+          className="flex items-center justify-between gap-3 border-t border-border/60 pt-2 first:border-0 first:pt-0"
         >
           <div className="flex flex-col min-w-0">
             <Hex value={e.escrowId} chars={20} />
-            <span className="text-xs text-zinc-500">
+            <span className="text-xs text-fg-dim">
               {money(e.amount)} · {e.state}
             </span>
           </div>

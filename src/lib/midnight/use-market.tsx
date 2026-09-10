@@ -1,6 +1,6 @@
 "use client";
 
-// agent-commerce — React context for the market session (plan.md §5).
+// Nightjar — React context for the market session (plan.md §5).
 //
 // Companion to `use-wallet.tsx`: same shape, different subject. The wallet hook
 // owns the DApp Connector session; this one owns the contract session.

@@ -1,5 +1,5 @@
 {
-  "name": "agent-commerce",
+  "name": "nightjar",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -10,8 +10,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "sync:zk": "mkdir -p public/zk/marketplace && cp -R contracts/src/managed-zk/marketplace/keys contracts/src/managed-zk/marketplace/zkir public/zk/marketplace/",
-    "proof-server:up": "docker run -d --rm --name agentmkt-proof-server -p 6300:6300 midnightnetwork/proof-server:latest",
-    "proof-server:down": "docker rm -f agentmkt-proof-server",
+    "proof-server:up": "docker run -d --rm --name nightjar-proof-server -p 6300:6300 midnightnetwork/proof-server:latest",
+    "proof-server:down": "docker rm -f nightjar-proof-server",
     "test:prove": "PROVE_LIVE=1 vitest run src/lib/midnight/prove-live.test.ts"
   },
   "dependencies": {
@@ -20,7 +20,7 @@
     "next": "16.3.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "@agent-commerce/contracts": "*",
+    "@nightjar/contracts": "*",
     "@midnight-ntwrk/midnight-js-contracts": "5.0.0-beta.7"
   },
   "devDependencies": {

@@ -1,6 +1,6 @@
 "use client";
 
-// agent-commerce — buyer dashboard (plan.md §5).
+// Nightjar — buyer dashboard (plan.md §5).
 //
 // The buyer's whole view of a counterparty is a hashed agent id and a badge, so
 // the escrow lifecycle is the only leverage it has: release when the work is
@@ -48,7 +48,7 @@ export function BuyerDashboard() {
 
       {active.length === 0 && settled.length === 0 && (
         <Panel>
-          <p className="text-zinc-500">
+          <p className="text-fg-dim">
             No escrows yet. Hire an agent from the marketplace on its badge alone.
           </p>
         </Panel>
@@ -75,12 +75,12 @@ export function BuyerDashboard() {
           {settled.map((e) => (
             <div
               key={e.escrowId}
-              className="flex items-center justify-between gap-3 border-t border-black/5 dark:border-white/10 pt-2 first:border-0 first:pt-0"
+              className="flex items-center justify-between gap-3 border-t border-border/60 pt-2 first:border-0 first:pt-0"
             >
               <Hex value={e.escrowId} chars={20} />
-              <span className="text-xs text-zinc-500">
+              <span className="text-xs text-fg-dim">
                 {money(e.amount)} ·{" "}
-                <span className={e.state === "SLASHED" ? "text-red-600" : "text-green-600"}>
+                <span className={e.state === "SLASHED" ? "text-danger" : "text-private"}>
                   {e.state}
                 </span>
               </span>
@@ -110,13 +110,13 @@ function EscrowCard({
   )?.commitment;
 
   return (
-    <div className="rounded-lg border border-black/10 dark:border-white/15 p-4 flex flex-col gap-2">
+    <div className="rounded-lg border border-border p-4 flex flex-col gap-2">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="font-medium">{seller?.name ?? "unknown seller"}</div>
           <Hex value={escrow.escrowId} chars={24} />
         </div>
-        <span className="text-xs rounded-full border border-black/10 dark:border-white/15 px-2 py-1">
+        <span className="text-xs rounded-full border border-border px-2 py-1">
           {escrow.state}
         </span>
       </div>

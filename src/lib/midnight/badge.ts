@@ -1,4 +1,4 @@
-// agent-commerce — the marketplace badge.
+// Nightjar — the marketplace badge.
 //
 // A badge is a *claim about thresholds*, not about statistics. `proveReputation`
 // takes (minJobs, minRateBps, minVolume) as public inputs and returns one

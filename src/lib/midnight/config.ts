@@ -1,4 +1,4 @@
-// agent-commerce — Midnight network + service configuration.
+// Nightjar — Midnight network + service configuration.
 //
 // A connected wallet reports its own service URIs via `getConfiguration()`; we
 // prefer those (the user may have privacy/perf preferences) and fall back to

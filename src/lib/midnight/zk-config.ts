@@ -1,4 +1,4 @@
-// agent-commerce — where the compiled ZK artifacts come from in the browser.
+// Nightjar — where the compiled ZK artifacts come from in the browser.
 //
 // `npm run sync:zk` copies the compiler's output into `public/zk/marketplace/`;
 // this serves it over HTTP to two consumers that want it in different shapes:

@@ -1,6 +1,6 @@
 "use client";
 
-// agent-commerce — the demo script (plan.md §6), runnable from the UI.
+// Nightjar — the demo script (plan.md §6), runnable from the UI.
 //
 // Each step is a real circuit call; the runner threads the snapshot from one
 // step into the next, so the escrow ids it acts on are the opaque ids the
@@ -45,7 +45,7 @@ const STEPS: Step[] = [
   },
   {
     title: "Seed the agents",
-    note: "Atlas gets the 55-job history from demoSellerLedger() and stakes 20,000; Nomad gets a 9-job history and stakes 2,000; both publish a commitment",
+    note: "Both sellers *earn* their history: earnHistory() runs 55 real escrows for Atlas and 9 for Nomad, each one a genuine open → deliver → release and a genuine updateReputation. Nothing is handed to them.",
     build: () => ({ type: "seed" }),
   },
   {
@@ -153,19 +153,19 @@ export function DemoRunner({ onFinished }: { onFinished?: () => void }) {
               <span
                 className={`mt-0.5 size-5 shrink-0 rounded-full border text-[11px] flex items-center justify-center ${
                   state === "done"
-                    ? "border-green-600/50 text-green-600"
+                    ? "border-private/40 text-private"
                     : state === "active"
-                      ? "border-blue-600/50 text-blue-600 animate-pulse"
+                      ? "border-accent/50 text-accent animate-pulse"
                       : state === "failed"
-                        ? "border-red-600/50 text-red-600"
-                        : "border-black/10 dark:border-white/15 text-zinc-500"
+                        ? "border-danger/40 text-danger"
+                        : "border-border text-fg-dim"
                 }`}
               >
                 {state === "done" ? "✓" : state === "failed" ? "!" : i + 1}
               </span>
               <div className="flex flex-col">
-                <span className={state === "idle" ? "text-zinc-500" : ""}>{step.title}</span>
-                <span className="text-xs text-zinc-500">{step.note}</span>
+                <span className={state === "idle" ? "text-fg-dim" : ""}>{step.title}</span>
+                <span className="text-xs text-fg-dim">{step.note}</span>
               </div>
             </li>
           );

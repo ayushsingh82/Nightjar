@@ -1,6 +1,6 @@
 "use client";
 
-// agent-commerce — React context for the Midnight wallet connection.
+// Nightjar — React context for the Midnight wallet connection.
 //
 // Provides connect / disconnect / address / status + a poll on connection
 // status and DUST balance. Wrap the app in <WalletProvider> (see layout.tsx)

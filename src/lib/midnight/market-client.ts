@@ -1,4 +1,4 @@
-// agent-commerce — high-level marketplace client.
+// Nightjar — high-level marketplace client.
 //
 // Ties together: the connected wallet, one persona's encrypted job ledger, the
 // compiled contract's circuit logic, and the prove→pay→submit pipeline.

@@ -1,26 +1,159 @@
 @import "tailwindcss";
 
+/* Nightjar — a nightjar hunts in the half hour after sunset, so the palette is
+ * dusk rather than midnight: warm charcoal the colour of bark, one ember of
+ * the light that is going, and a sky that has already turned.
+ *
+ * Two hues are reserved and carry meaning, never decoration:
+ *   mint  = private, held on the device, never transmitted
+ *   sky   = public, written to the ledger, anyone can read it
+ * Ember is the brand — primary actions, the wordmark, focus — and never means
+ * anything. If a value on screen is mint or sky, that is telling you who can
+ * see it. */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Surfaces — warm charcoal, each step ~4% lighter, no pure black anywhere. */
+  --bg: #0d0b0a;
+  --bg-raised: #171412;
+  --bg-inset: #110f0e;
+  --bg-hover: #201c19;
+
+  /* Borders sit low-contrast on purpose; structure comes from surface, not line. */
+  --border: #2a2521;
+  --border-strong: #3b332c;
+
+  /* Text — warm off-white, so it reads softer than #fff on a warm ground. */
+  --fg: #f0ebe4;
+  --fg-muted: #b0a598;
+  --fg-dim: #7d7367;
+
+  /* Brand: the last ember of daylight. Focus, links, the wordmark. */
+  --accent: #e6a75f;
+  --accent-soft: #e6a75f1f;
+
+  /* The two that mean something. Desaturated from the usual web-safe versions
+   * so a screen full of them is calm rather than loud. */
+  --private: #7ed0b0;
+  --public: #8fb4e8;
+  --danger: #ef8a8a;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --color-bg: var(--bg);
+  --color-bg-raised: var(--bg-raised);
+  --color-bg-inset: var(--bg-inset);
+  --color-bg-hover: var(--bg-hover);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-dim: var(--fg-dim);
+  --color-accent: var(--accent);
+  --color-private: var(--private);
+  --color-public: var(--public);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-body), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-display);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Display face for headings — the one serif in the system. It is what stops
+ * this reading as another dark admin panel. */
+.font-display {
+  font-family: var(--font-display), ui-serif, Georgia, serif;
+  font-weight: 400;
+  letter-spacing: -0.015em;
+}
+
+/* Dusk: the glow along the horizon, low and off-centre, with the sky already
+ * cold above it. Two very wide, very low-opacity radials — atmosphere, never a
+ * shape. */
+.bg-dusk {
+  background-image:
+    radial-gradient(58rem 24rem at 50% 104%, #e6a75f26, transparent 66%),
+    radial-gradient(46rem 30rem at 86% -8%, #8fb4e814, transparent 62%);
+  /* Anchored to the viewport, not the document: on a long page a
+   * document-anchored glow ends up somewhere nobody ever scrolls to. */
+  background-attachment: fixed;
+}
+
+/* Numbers that change should not shift the layout under them. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* A hairline that fades out at both ends — softer than a full-width border. */
+.rule-fade {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border-strong), transparent);
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.95;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+.animate-breathe {
+  animation: breathe 2.4s ease-in-out infinite;
+}
+
+@keyframes sweep {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(330%);
+  }
+}
+.animate-sweep {
+  animation: sweep 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-rise {
+  animation: rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Focus that matches the brand rather than the browser default. */
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--fg);
+}
+
+/* Scrollbars inside panels, so a long ledger does not punch a grey bar through
+ * the palette. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
 }

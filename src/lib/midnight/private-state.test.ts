@@ -46,13 +46,13 @@ describe("EncryptedPrivateStateStore", () => {
 
     const state = emptyAgentState(new Uint8Array(32).fill(7), new Uint8Array(32).fill(8));
     const withJobs = appendJob(appendJob(state, job(1, 500n, true)), job(2, 300n, true));
-    await store.set("agentmkt.seller", withJobs);
+    await store.set("nightjar.seller", withJobs);
 
     const raw = storage.allKeys().map((k) => storage.getItem(k)!).join();
     expect(raw).not.toContain("jobLedger");
     expect(raw).not.toContain("500");
 
-    const back = await store.get<typeof withJobs>("agentmkt.seller");
+    const back = await store.get<typeof withJobs>("nightjar.seller");
     expect(back?.jobLedger).toHaveLength(2);
     expect(back?.jobLedger[0].price).toBe(500n);
   });

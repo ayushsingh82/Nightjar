@@ -1,4 +1,4 @@
-// agent-commerce — Midnight integration layer (plan.md §3).
+// Nightjar — Midnight integration layer (plan.md §3).
 //
 //   config          network + service endpoints, wallet-config merge
 //   connector       DApp Connector API: list / connect / status / DUST

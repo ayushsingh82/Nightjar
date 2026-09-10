@@ -1,4 +1,4 @@
-// agent-commerce — TS reference for the reputation thresholds.
+// Nightjar — TS reference for the reputation thresholds.
 //
 // MUST stay in lockstep with `proveReputation` in marketplace.compact:
 //   okJobs   : successes >= minJobs

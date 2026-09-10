@@ -1,4 +1,4 @@
-// agent-commerce — in-memory contract simulator for tests.
+// Nightjar — in-memory contract simulator for tests.
 //
 // Runs the generated circuit logic (no proof server) against a local ledger
 // state, rebuilding the circuit context from the latest state before every

@@ -1,4 +1,4 @@
-// agent-commerce — seed a seller agent with a private history that clears the
+// Nightjar — seed a seller agent with a private history that clears the
 // marketplace badge (>= 50 jobs, >= 95% success, >= $10k volume), then prove it.
 //
 //   npm run seed:seller
@@ -14,8 +14,8 @@ const jsonOnly = process.argv.includes("--json");
 const log = (...a: unknown[]) => !jsonOnly && console.log(...a);
 
 const arbiterSecret = new Uint8Array(32).fill(1);
-const sellerSecret = process.env.AGENTMKT_SELLER_SECRET
-  ? Uint8Array.from(Buffer.from(process.env.AGENTMKT_SELLER_SECRET, "hex"))
+const sellerSecret = process.env.NIGHTJAR_SELLER_SECRET
+  ? Uint8Array.from(Buffer.from(process.env.NIGHTJAR_SELLER_SECRET, "hex"))
   : new Uint8Array(32).fill(2);
 const sellerSalt = new Uint8Array(32).fill(9);
 

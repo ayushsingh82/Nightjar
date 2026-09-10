@@ -1,6 +1,6 @@
 "use client";
 
-// agent-commerce — the marketplace (plan.md §5).
+// Nightjar — the marketplace (plan.md §5).
 //
 // A seller card carries the agent's public id, its on-chain bond, and a ZK
 // badge. That is the complete list. No client list, no prices, no job count, no
@@ -53,8 +53,12 @@ export function Marketplace({ onHired }: { onHired?: () => void }) {
               <Row label="Agent id">
                 <Hex value={seller.agentId} chars={14} />
               </Row>
-              <Row label="Bond staked (on chain)">{money(bond)}</Row>
+              <Row label="Bond staked (on chain)" tone="public">{money(bond)}</Row>
               <Button
+                // A disabled primary is a muddy ember bar; an unhireable agent
+                // should read as "nothing to act on", not "action greyed out".
+                variant={verdict.kind === "verified" ? "primary" : "ghost"}
+                full
                 disabled={busy || !buyer || verdict.kind !== "verified" || amount === "" || amount === "0"}
                 onClick={async () => {
                   if (!buyer) return;

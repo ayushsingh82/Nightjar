@@ -1,6 +1,6 @@
 "use client";
 
-// agent-commerce — explorer panel (plan.md §5, the demo's punchline).
+// Nightjar — explorer panel (plan.md §5, the demo's punchline).
 //
 // Left column: the contract's public ledger, read back field for field, plus
 // the literal serialized state string an indexer would return.
@@ -16,7 +16,10 @@ import {
   type ChainEscrow,
   type MarketSnapshot,
 } from "@/lib/midnight";
-import { Hex, Note, Panel, Row, money } from "./market-ui";
+import { Hex, Note, Panel, Row, Stat, money } from "./market-ui";
+
+/** A real run settles well over a hundred escrows; the panel shows the tail. */
+const ESCROW_PREVIEW = 12;
 
 export function ExplorerPanel() {
   const { snapshot } = useMarket();
@@ -46,47 +49,78 @@ export function ExplorerPanel() {
 
 function LeakCheck({ snapshot }: { snapshot: MarketSnapshot }) {
   const serialized = snapshot.chain.serialized;
-  const rows = snapshot.agents.flatMap((a) =>
-    a.jobs.map((j) => ({ agent: a.name, ...j, salt: a.ledgerSalt })),
-  );
-  const offChain = rows.filter((r) => !r.escrowId);
-  const settled = rows.filter((r) => r.escrowId);
-  // Actually searched for, every render, in the real serialized state.
-  const leaked = offChain.filter((r) => serialized.includes(r.client));
+  const escrows = snapshot.chain.escrows;
+  const rows = snapshot.agents.flatMap((a) => a.jobs);
+
+  // Actually searched for, every render, in the real serialized state. The
+  // salt is the commitment opening: with it, the aggregate stops being hidden.
   const saltsLeaked = snapshot.agents.filter((a) => serialized.includes(a.ledgerSalt));
 
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Stat label="Private job rows" value={String(rows.length)} />
-        <Stat
-          label="Rows with any on-chain trace"
-          value={`${settled.length} of ${rows.length}`}
-          hint="only rows that settled through an escrow — the escrow record names its counterparties"
-        />
-        <Stat label="Public state size" value={`${serialized.length} chars`} />
-      </div>
-      <p
-        className={`text-xs ${
-          leaked.length === 0 && saltsLeaked.length === 0
-            ? "text-green-700 dark:text-green-400"
-            : "text-red-600"
-        }`}
-      >
-        {leaked.length === 0 && saltsLeaked.length === 0
-          ? `Checked: none of the ${offChain.length} off-chain job rows and none of the ${snapshot.agents.length} ledger salts appear anywhere in the serialized public state.`
-          : `Leak: ${leaked.length} job row(s) and ${saltsLeaked.length} salt(s) found in public state.`}
-      </p>
-    </div>
-  );
-}
+  // The claim the seller commitment exists to make. This client happens to know
+  // who sold what — it arranged the jobs — so it can count what an observer
+  // holding only the ledger could not: how many escrow rows name each seller.
+  // The answer has to be zero, because escrows carry persistentCommit(id, nonce).
+  const sellers = snapshot.agents
+    .filter((a) => a.role === "seller")
+    .map((a) => ({
+      name: a.name,
+      sells: escrows.filter((e) => e.seller === a.agentId).length,
+      // Occurrences of the raw agent id anywhere in the public record.
+      appearances: serialized.split(a.agentId).length - 1,
+      inEscrows: escrows.filter((e) => e.sellerCommit === a.agentId).length,
+    }))
+    .filter((s) => s.sells > 0);
 
-function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  const namedInEscrows = sellers.reduce((n, s) => n + s.inEscrows, 0);
+  const clean = saltsLeaked.length === 0 && namedInEscrows === 0;
+
   return (
-    <div className="rounded-lg border border-black/10 dark:border-white/15 p-3">
-      <div className="text-xs text-zinc-500">{label}</div>
-      <div className="text-lg font-medium tabular-nums">{value}</div>
-      {hint && <div className="text-[11px] text-zinc-500 mt-0.5">{hint}</div>}
+    <div className="flex flex-col gap-4">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Stat label="Private job rows" value={String(rows.length)} tone="private" />
+        <Stat
+          label="Escrow rows naming a seller"
+          value={`${namedInEscrows} of ${escrows.length}`}
+          tone={namedInEscrows === 0 ? "private" : "danger"}
+          sub="every escrow carries persistentCommit(agentId, nonce) in the seller slot, never the id"
+        />
+        <Stat label="Public state size" value={`${serialized.length} chars`} tone="public" />
+      </div>
+
+      {sellers.length > 0 && (
+        <div className="rounded-xl border border-border/70 bg-bg-inset/60 overflow-hidden">
+          <table className="w-full text-xs">
+            <thead className="text-fg-dim">
+              <tr className="text-left">
+                <th className="font-normal px-4 py-2">Seller</th>
+                <th className="font-normal text-right px-4">Escrows sold</th>
+                <th className="font-normal text-right px-4">Agent id in public state</th>
+                <th className="font-normal text-right px-4 py-2">…of those, escrow rows</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sellers.map((s) => (
+                <tr key={s.name} className="border-t border-border/60">
+                  <td className="px-4 py-2">{s.name}</td>
+                  <td className="text-right px-4 font-mono tnum text-private">{s.sells}</td>
+                  <td className="text-right px-4 font-mono tnum text-public">
+                    {s.appearances}×
+                  </td>
+                  <td className="text-right px-4 py-2 font-mono tnum text-private">
+                    {s.inEscrows}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <p className={`text-xs leading-relaxed ${clean ? "text-private" : "text-danger"}`}>
+        {clean
+          ? `Checked, against the live serialized state: none of the ${snapshot.agents.length} ledger salts appear anywhere in it, and none of the ${escrows.length} escrow rows name a seller. A seller's agent id does appear in the public record — it has to, or the bond could not be slashed and the commitment could not be opened — but never in an escrow row, and so never beside a price or an outcome.`
+          : `Leak: ${saltsLeaked.length} salt(s) and ${namedInEscrows} escrow row(s) expose something they should not.`}
+      </p>
     </div>
   );
 }
@@ -107,7 +141,7 @@ function ChainColumn({ snapshot }: { snapshot: MarketSnapshot }) {
 
         <SubTable title="bonds: Map<AgentId, Uint>">
           {chain.bonds.map((b) => (
-            <tr key={b.agentId} className="border-t border-black/5 dark:border-white/10">
+            <tr key={b.agentId} className="border-t border-border/60">
               <td className="py-1">
                 <Hex value={b.agentId} chars={14} />
               </td>
@@ -118,7 +152,7 @@ function ChainColumn({ snapshot }: { snapshot: MarketSnapshot }) {
 
         <SubTable title="reputationCommitments: Map<AgentId, Bytes>">
           {chain.reputationCommitments.map((c) => (
-            <tr key={c.agentId} className="border-t border-black/5 dark:border-white/10">
+            <tr key={c.agentId} className="border-t border-border/60">
               <td className="py-1">
                 <Hex value={c.agentId} chars={14} />
               </td>
@@ -131,14 +165,17 @@ function ChainColumn({ snapshot }: { snapshot: MarketSnapshot }) {
 
         {chain.escrows.length > 0 && (
           <div className="flex flex-col gap-1">
-            <span className="text-xs text-zinc-500">escrows: Map&lt;EscrowId, EscrowRecord&gt;</span>
-            {chain.escrows.map((e) => (
+            <span className="text-xs text-fg-dim">
+              escrows: Map&lt;EscrowId, EscrowRecord&gt; · {chain.escrows.length} rows
+              {chain.escrows.length > ESCROW_PREVIEW && `, showing the last ${ESCROW_PREVIEW}`}
+            </span>
+            {chain.escrows.slice(-ESCROW_PREVIEW).map((e) => (
               <div
                 key={e.escrowId}
-                className="rounded-lg border border-black/10 dark:border-white/15 p-2 text-xs flex flex-col gap-0.5"
+                className="rounded-lg border border-border p-2 text-xs flex flex-col gap-0.5"
               >
                 <Hex value={e.escrowId} chars={32} />
-                <span className="text-zinc-500">
+                <span className="text-fg-dim">
                   buyer <Hex value={e.buyer} chars={10} /> · seller{" "}
                   <Hex value={e.sellerCommit} chars={10} /> (commitment) · {money(e.amount)} ·{" "}
                   {e.state}
@@ -160,7 +197,7 @@ function ChainColumn({ snapshot }: { snapshot: MarketSnapshot }) {
         title="Serialized contract state"
         subtitle={`byte-for-byte what an indexer returns · sha256 ${chain.stateDigest.slice(0, 16)}…`}
       >
-        <pre className="text-[11px] font-mono whitespace-pre-wrap break-all max-h-72 overflow-auto text-zinc-600 dark:text-zinc-400">
+        <pre className="text-[11px] font-mono whitespace-pre-wrap break-all max-h-72 overflow-auto text-fg-muted">
           {chain.serialized}
         </pre>
         <Note>
@@ -176,7 +213,7 @@ function ChainColumn({ snapshot }: { snapshot: MarketSnapshot }) {
 function SubTable({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-xs text-zinc-500">{title}</span>
+      <span className="text-xs text-fg-dim">{title}</span>
       <table className="w-full text-xs">
         <tbody>{children}</tbody>
       </table>
@@ -211,18 +248,18 @@ function PrivateAgent({ agent }: { agent: AgentView }) {
         <Hex value={agent.ledgerSalt} chars={16} />
       </Row>
       {agent.jobs.length > 0 && (
-        <div className="max-h-48 overflow-auto rounded-lg border border-black/10 dark:border-white/15 p-2">
+        <div className="max-h-48 overflow-auto rounded-lg border border-border p-2">
           <table className="w-full text-[11px] font-mono">
             <tbody>
               {agent.jobs.map((j, i) => (
                 <tr key={`${j.client}-${i}`}>
-                  <td className="text-zinc-500 pr-2">{i + 1}</td>
+                  <td className="text-fg-dim pr-2">{i + 1}</td>
                   <td className="truncate">{j.client.slice(0, 16)}…</td>
                   <td className="text-right pl-2">{money(j.price)}</td>
-                  <td className={`text-right pl-2 ${j.success ? "text-green-600" : "text-red-600"}`}>
+                  <td className={`text-right pl-2 ${j.success ? "text-private" : "text-danger"}`}>
                     {j.success ? "ok" : "fail"}
                   </td>
-                  <td className="text-right pl-2 text-zinc-500">{j.escrowId ? "escrow" : "—"}</td>
+                  <td className="text-right pl-2 text-fg-dim">{j.escrowId ? "escrow" : "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -255,7 +292,7 @@ function Settlement({ snapshot }: { snapshot: MarketSnapshot }) {
     >
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="flex flex-col gap-1">
-          <span className="text-xs text-zinc-500 uppercase tracking-wide">Carried on chain</span>
+          <span className="text-xs text-fg-dim uppercase tracking-wide">Carried on chain</span>
           <ul className="text-xs flex flex-col gap-1">
             <li>
               escrowId — <Hex value={settled.escrowId} chars={20} /> (32 CSPRNG bytes, links to
@@ -270,7 +307,7 @@ function Settlement({ snapshot }: { snapshot: MarketSnapshot }) {
               nor can it count how many jobs they have done)
             </li>
             {settled.seller && (
-              <li className="text-zinc-500">
+              <li className="text-fg-dim">
                 …which this client happens to know opens to{" "}
                 <Hex value={settled.seller} chars={14} /> — because it arranged the job.
                 An observer with only the ledger does not.
@@ -281,8 +318,8 @@ function Settlement({ snapshot }: { snapshot: MarketSnapshot }) {
           </ul>
         </div>
         <div className="flex flex-col gap-1">
-          <span className="text-xs text-zinc-500 uppercase tracking-wide">Not carried</span>
-          <ul className="text-xs flex flex-col gap-1 text-zinc-500">
+          <span className="text-xs text-fg-dim uppercase tracking-wide">Not carried</span>
+          <ul className="text-xs flex flex-col gap-1 text-fg-dim">
             <li>the seller&apos;s other {Math.max(sellerJobs - 1, 0)} jobs</li>
             <li>who any of those clients were</li>
             <li>what any of them paid</li>
@@ -311,23 +348,23 @@ function EventLog({ snapshot }: { snapshot: MarketSnapshot }) {
         {[...snapshot.events].reverse().map((ev) => (
           <div
             key={ev.seq}
-            className="border-t border-black/5 dark:border-white/10 pt-2 first:border-0 first:pt-0 text-xs"
+            className="border-t border-border/60 pt-2 first:border-0 first:pt-0 text-xs"
           >
             <div className="flex justify-between gap-3">
               <span className="font-mono">
                 #{ev.seq} {ev.circuit}
               </span>
-              <span className="text-zinc-500">{ev.actor}</span>
+              <span className="text-fg-dim">{ev.actor}</span>
             </div>
-            <div className="text-zinc-500">{ev.detail}</div>
+            <div className="text-fg-dim">{ev.detail}</div>
             <ul className="mt-1 flex flex-col gap-0.5 font-mono text-[11px]">
               {ev.ledgerWrites.map((w) => (
-                <li key={w} className="text-zinc-600 dark:text-zinc-400">
+                <li key={w} className="text-fg-muted">
                   {w}
                 </li>
               ))}
             </ul>
-            <div className="text-[11px] text-zinc-500 mt-0.5">
+            <div className="text-[11px] text-fg-dim mt-0.5">
               state sha256 <Hex value={ev.stateDigest} chars={16} />
             </div>
           </div>

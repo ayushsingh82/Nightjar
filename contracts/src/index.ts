@@ -1,6 +1,6 @@
-// agent-commerce — the contracts package's public surface.
+// Nightjar — the contracts package's public surface.
 //
-// The app imports the compiled contract from here (`@agent-commerce/contracts`)
+// The app imports the compiled contract from here (`@nightjar/contracts`)
 // so transaction assembly runs the *same* generated circuit code the test suite
 // does, rather than a second copy that could drift.
 //

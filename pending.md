@@ -1,19 +1,20 @@
-# agent-commerce — Pending
+# Nightjar — Pending
 
 Working checklist tracked alongside the code. `[x]` done, `[~]` partial, `[ ]` open.
 Milestones §1–§6 are complete, and so is transaction assembly. **Full ZK keygen
 is no longer blocked** (601MB -> 57MB), **reputation is both sound and private**
 — earned through settled escrows and unlinkable to the seller — and the app can
-build and prove real contract transactions. What has not happened is a run
-against a live network; see "Known gaps".
+build and prove real contract transactions. The project is named, designed and
+documented. What has not happened is a run against a live network; see
+"Known gaps".
 
 ## Milestone status (plan.md)
 
 - **§1 Core Contract (escrow + slashing) — DONE.** Compiles under Compact 0.23
   (`compact 0.5.2`, compiler 0.34.0). Full behavioural suite green
-  (`test/marketplace.test.ts`, 20 cases: escrow lifecycle, slashing math,
-  arbiter auth, reputation monotonicity, proof soundness). 41/41 passing,
-  `tsc --noEmit` clean.
+  (`test/marketplace.test.ts`, 28 cases: escrow lifecycle, slashing math,
+  arbiter auth, seller-commitment binding, reputation monotonicity, proof
+  soundness). 53/53 passing, `tsc --noEmit` clean.
   - **Full ZK keygen now works and is fast.** It was the 64-slot double `fold`,
     not the machine: keys scale linearly with the cap (8 slots -> 36.8MB,
     64 -> 291MB), so no cap both fits a browser and supports a >=50-job badge.
@@ -30,14 +31,15 @@ against a live network; see "Known gaps".
   health check, message signing + agent challenges, DUST fee state + pre-flight
   check, and the `prove → pay fees → submit → confirm` pipeline (`submit.ts`)
   wired to the phase machine. `MarketClient` composes it all (one method per
-  circuit). 21 app unit tests, `tsc` clean, `next build` green. The one remaining
-  seam is transaction assembly (`TxAssembler`) — `midnight-js-contracts` is
-  version-blocked on our Compact 0.34 / runtime 0.19 toolchain.
+  circuit). 37 app unit tests, `tsc` clean, `next build` green. Transaction
+  assembly (`TxAssembler`) is implemented and proven against a real proof
+  server — see "Wallet + infra".
 - **§4 Agent Runtime — DONE.** `contracts/src/runtime.ts` — `Agent` (identity +
   salt + private ledger), `runJob` / `runJobs` scripting buyer↔seller task
   lifecycles against the contract (open → deliver → release → both ledgers
-  updated → seller re-commits; or dispute → arbiter slash). `demoSellerLedger`
-  builds a history that clears the badge; `npm run seed:seller`
+  updated → seller re-commits; or dispute → arbiter slash). `earnHistory()`
+  *earns* a badge-clearing history through real escrows rather than handing one
+  over; `npm run seed:seller`
   (`scripts/seed-seller.ts`) seeds it and proves it. `test/runtime.test.ts`
   (4 cases).
 - **§5 UI — DONE.** `/console` hosts the marketplace (badge-only agent cards →
@@ -56,8 +58,9 @@ browser bundle. They run server-side in `src/lib/midnight/demo-market.ts`,
 driving the owner's `MarketSim` — real circuit execution, real ledger state,
 **unproven and never submitted**. The UI states this rather than implying a
 chain write (`EXECUTION_NOTICE` in the snapshot; `ProofProgressView` renders
-`balancing`/`submitting`/`confirming` as blocked on `TxAssembler`). The wallet
-panel remains the real DApp Connector surface and is untouched.
+`balancing`/`submitting`/`confirming` as off-path, naming the reason — a funded
+browser wallet, not a missing implementation). The wallet panel remains the real
+DApp Connector surface and is untouched.
 
 Score so far: **6 milestones done (§1–§6).**
 
@@ -66,7 +69,7 @@ Score so far: **6 milestones done (§1–§6).**
 - [x] Scaffold `contracts/` with a Compact starter contract
 - [x] Define ledger state (arbiterPk, bonds, reputationCommitments, escrows, escrowCount, slashedTotal)
 - [x] Reworked to Compact >= 0.23 + applied REVIEW.md S1/S2/S4/S5/S7, C4/C5/C6/C7
-- [~] Install the `compact` compiler and compile `src/marketplace.compact` — compiles with `--skip-zk`; full ZK keygen deferred (see caveat above)
+- [x] Install the `compact` compiler and compile `src/marketplace.compact` — both `--skip-zk` (0.5s) and full keygen (~30s, 57MB) via `npm run compact:zk`
 
 ## Core contract
 - [x] `openEscrow` — compiled + tested
@@ -143,8 +146,8 @@ Score so far: **6 milestones done (§1–§6).**
   `ProvingProvider` backed by a self-hosted `midnight-proof-server`, so the most
   expensive step no longer needs a human clicking through a browser extension.
   `npm run proof-server:up && npm run test:prove`:
-  - `registerAgent` — 1.1s
-  - **`proveReputation` — 1.9s**, 4.9KB proven transaction. That number only
+  - `registerAgent` — 1.5s
+  - **`proveReputation` — 2.4s**, 4.9KB proven transaction. That number only
     exists because the circuit went from a 64-slot fold (291MB key) to an
     incremental aggregate (9.5MB).
 - [x] Live entry point — `src/lib/midnight/live.ts`: `connectMarket()` builds a
@@ -163,7 +166,7 @@ Score so far: **6 milestones done (§1–§6).**
 - [x] `src/lib/midnight/` unit tests (codec, encrypted store, two-persona managers, config, fees, signing, submit, client) — 21 cases
 - [x] `demo-market.test.ts` — 7 more cases: badge-from-thresholds, badge
       staleness, escrow-id opacity, and the whole demo asserted against ledger
-      state (28 app tests total; contracts still 45)
+      state (37 app tests total; 53 in contracts)
 - [x] tsconfig `target` bumped to ES2020 (bigint), `contracts/` excluded from app typecheck
 - [x] repaired truncated `@next/swc-darwin-arm64` binary
 - [x] `tsx` + `contracts` script (`seed:seller`)
@@ -185,11 +188,12 @@ Score so far: **6 milestones done (§1–§6).**
 - [ ] Real agent-to-agent messaging / task payloads (currently direct calls)
 
 ## UI
-- [x] Landing + connect — `page.tsx` + `WalletPanel` (address, DUST, proof-server status, privacy note)
+- [x] Landing + connect — `Landing.tsx` at `/` (hero, measured proving numbers, how-it-works, an explicit real/not-real section) + `WalletPanel` (address, DUST, proof-server status, privacy note)
 - [x] Proof progress primitives — `ProofProgress` / `runWithProgress`
 - [x] Proof progress render component — `ProofProgressView.tsx`; shows the two
-      phases this build runs and marks `balancing`/`submitting`/`confirming`
-      blocked on `TxAssembler` instead of faking them
+      phases the console runs and marks `balancing`/`submitting`/`confirming`
+      off-path — implemented in `live.ts`, waiting on a funded wallet — instead
+      of faking them
 - [x] Server-side contract session — `src/lib/midnight/demo-market.ts` +
       `src/app/api/market/route.ts`; wire types split into `market-types.ts`
       (client-safe) so the browser bundle never pulls the contract in
@@ -215,17 +219,46 @@ Score so far: **6 milestones done (§1–§6).**
       values on every render
 
 ## Demo
-- [x] Seed seller with strong private history — reuses `demoSellerLedger()`;
-      `newcomerSellerLedger()` added alongside it for the agent that *cannot*
-      clear the badge
+- [x] Seed seller with strong private history — `earnHistory()` runs 55 real
+      escrows for the strong seller and 9 for the newcomer that *cannot* clear
+      the badge (`DEMO_SELLER_HISTORY` / `NEWCOMER_HISTORY`). Nothing is seeded
+      into a witness directly
 - [x] End-to-end: badge → hire → escrow → deliver → release — `DemoRunner.tsx`,
       12 steps, runnable from `/console`
 - [~] Explorer shows an opaque settlement — the escrow ledger row, the serialized
       state and the state digest are real and are shown next to what they do *not*
-      carry. There is no settlement **transaction**: submission is blocked on
-      `TxAssembler`, and the UI says so rather than inventing a tx hash
+      carry. There is no settlement **transaction**: submission needs a funded
+      wallet, and the UI says so rather than inventing a tx hash
 - [x] Dispute → slash with no ledger leak — bond and `slashedTotal` move, the
       failed job lands only in the seller's private ledger
+
+## Product, design + docs
+- [x] **Named.** Nightjar — a bird you know by its call, not by seeing it, which
+      is the product. Centralised in `src/lib/brand.ts` so a rename is one edit.
+      Package, workspace scope, docker container, env vars and the circuit's own
+      domain separators (`nightjar:agent:v1`, `nightjar:stats:v1`,
+      `nightjar:arbiter:v1`) all follow it.
+- [x] **Design system.** `globals.css` carries the tokens: warm charcoal dusk
+      surfaces, ember for the brand, and two reserved hues that mean something —
+      mint = private/device-only, sky = public/on-chain. Nothing else on screen
+      is coloured. Fraunces (display) + Plus Jakarta Sans (body) + Geist Mono,
+      self-hosted through `next/font`, so there is no CDN and no layout shift.
+- [x] **Console chrome** — `AppShell.tsx`: mark, wordmark, tabs, network pill and
+      a wallet menu, replacing the untouched Next.js scaffold styling.
+- [x] **Leak check rewritten.** It was asserting a vacuity: after histories
+      became escrow-earned, *every* private job row settled through an escrow, so
+      "none of the 0 off-chain rows leaked" was true and meaningless. It now
+      measures the claim the seller commitment actually makes — 0 of N escrow
+      rows name a seller — and shows, per seller, how many escrows it sold
+      against how many times its agent id appears in the public record.
+- [x] **README rewritten** against the current design (incremental aggregate,
+      seller commitments, real assembly + proving, measured numbers).
+- [x] `npm --prefix contracts run compact:zk` — the 57MB `managed-zk` build had
+      no script, which made it unreproducible.
+- [x] **`test:prove` no longer passes when it does nothing.** A missing proof
+      server used to `console.warn` and return, so the suite went green having
+      proved nothing. Setting `PROVE_LIVE=1` now means "prove", and a missing
+      server fails. (Same fix applied in the sibling repo.)
 
 ## Open questions
 - [ ] Which Midnight wallet for the demo (Lace / other)?

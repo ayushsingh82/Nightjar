@@ -1,4 +1,4 @@
-// agent-commerce — the wire shape of the market session.
+// Nightjar — the wire shape of the market session.
 //
 // Everything the contract session hands the UI, with `bigint` as decimal
 // strings and `Uint8Array` as hex so a snapshot survives JSON. Kept apart from

@@ -1,4 +1,4 @@
-// agent-commerce — proof server health + a small state machine for the "generate proof,
+// Nightjar — proof server health + a small state machine for the "generate proof,
 // submit, wait" flow. Proof generation on Midnight is slow (seconds to minutes),
 // so every borrow / repay path drives one of these and renders the phase.
 

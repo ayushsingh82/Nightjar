@@ -1,4 +1,4 @@
-// agent-commerce — message signing via the DApp Connector API.
+// Nightjar — message signing via the DApp Connector API.
 //
 // Used to derive the encrypted-store key (see private-state.ts) and to sign
 // agent-to-agent challenges (e.g. a buyer proving it controls the address that
@@ -24,7 +24,7 @@ export async function signMessage(api: ConnectedAPI, message: string): Promise<S
 export function agentChallenge(purpose: string, subject: string): { message: string; nonce: string } {
   const nonce = crypto.getRandomValues(new Uint8Array(16));
   const nonceHex = Array.from(nonce, (b) => b.toString(16).padStart(2, "0")).join("");
-  return { message: `agentmkt:${purpose}:${subject}:${nonceHex}`, nonce: nonceHex };
+  return { message: `nightjar:${purpose}:${subject}:${nonceHex}`, nonce: nonceHex };
 }
 
 export async function signChallenge(

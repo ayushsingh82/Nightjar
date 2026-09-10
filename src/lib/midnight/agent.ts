@@ -1,4 +1,4 @@
-// agent-commerce — app-side view of the marketplace contract: the private
+// Nightjar — app-side view of the marketplace contract: the private
 // state each agent holds locally (its job ledger), plus a typed wrapper over
 // the encrypted store.
 //
@@ -74,14 +74,14 @@ export class AgentStateManager {
     const key = await deriveStoreKey(api);
     return new AgentStateManager(
       new EncryptedPrivateStateStore(key, { address, storage }),
-      `agentmkt.${persona}`,
+      `nightjar.${persona}`,
     );
   }
 
   static withKey(key: CryptoKey, address: string, persona: Persona, storage?: StorageBackend): AgentStateManager {
     return new AgentStateManager(
       new EncryptedPrivateStateStore(key, { address, storage }),
-      `agentmkt.${persona}`,
+      `nightjar.${persona}`,
     );
   }
 
