@@ -1,0 +1,85 @@
+{
+  "manifest-version": "1",
+  "compiler-version": "0.34.0",
+  "language-version": "0.26.0",
+  "runtime-version": "0.19.0",
+  "compiler": {
+    "type": "directory",
+    "contract-info.json": {
+      "type": "file",
+      "size": 10055,
+      "hash": "e4c537f4a850ab761bad64cac6f0aa840b342b97adcbc179c4efa5eb26c00339"
+    }
+  },
+  "contract": {
+    "type": "directory",
+    "index.d.ts": {
+      "type": "file",
+      "size": 9147,
+      "hash": "af5be43a8388554a509654c749fbb53ba48c56634949f888ae1e796d05956909"
+    },
+    "index.js": {
+      "type": "file",
+      "size": 188348,
+      "hash": "6b2478d382dda516289abf6be5d3d708e11887694d01c6d618df5be8f7c84834"
+    },
+    "index.js.map": {
+      "type": "file",
+      "size": 7757,
+      "hash": "cac4fcfffa8289eb396613713f5adfe5f73225dbd82359bf36093f8e893adae6"
+    }
+  },
+  "zkir": {
+    "type": "directory",
+    "dispute.zkir": {
+      "type": "file",
+      "size": 7414,
+      "hash": "5b8d6583809d96ab983f385ccc913eca9fb3126eb8ba89f1efd2ec3e924b550d"
+    },
+    "markDelivered.zkir": {
+      "type": "file",
+      "size": 6163,
+      "hash": "bd7c273439bc2203b664023a58b81b166cf527ff1fa4a3580920a89b8ae9b90f"
+    },
+    "openEscrow.zkir": {
+      "type": "file",
+      "size": 4449,
+      "hash": "e439e9cfa6ad8178833155d7ab2b6beacbd5956046fc84efaaf80163d3e1afe4"
+    },
+    "proveReputation.zkir": {
+      "type": "file",
+      "size": 5516,
+      "hash": "05ba9e16869604818dfbb88323eb9903a2133f02a48e7bdbdcb25410f236743c"
+    },
+    "registerAgent.zkir": {
+      "type": "file",
+      "size": 4326,
+      "hash": "4d7254fe462976d47fa4b7370fcca333dd4d367935c3d431ef13b18005527123"
+    },
+    "release.zkir": {
+      "type": "file",
+      "size": 5524,
+      "hash": "5d21806b8ba857be037b886d100b7463a350cb9d7e2da79b1ecb484aaf5cc459"
+    },
+    "resolveDispute.zkir": {
+      "type": "file",
+      "size": 19318,
+      "hash": "40a33c7107e71ca93aaad92e586a3e05966cc1d777d2d278878b966ae7221ff6"
+    },
+    "stakeBond.zkir": {
+      "type": "file",
+      "size": 4772,
+      "hash": "87887cbc889062880412e5d7b6738e5783d7f0568d581a8f52a07753c68dc7b8"
+    },
+    "updateReputation.zkir": {
+      "type": "file",
+      "size": 13056,
+      "hash": "0671a236142e4c6e4d074ee352a5b4e8858a194b318ee399e7185a2830effe6d"
+    },
+    "withdrawBond.zkir": {
+      "type": "file",
+      "size": 4390,
+      "hash": "0db4dc3698becfe8de5795ab339b89a544df7bc31fb70b08c43e90cb4e320f4d"
+    }
+  }
+}
