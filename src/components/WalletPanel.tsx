@@ -6,6 +6,11 @@
 // address, the DUST balance the fees would come out of, and a proof-server
 // health check. What it is *not* is what drives the console tabs — see the
 // execution notice there.
+//
+// Connection state and proof-server health are printed in ink, not in the
+// reserved hues: neither of them says anything about who can see a value. The
+// values that do — the address and the DUST balance — are ledger-visible, and
+// are printed in the public ink to say so.
 
 import { useWallet } from "@/lib/midnight";
 import { Button, Note, Panel, Row, VisibilityTag, shortAddress } from "./market-ui";
@@ -23,24 +28,24 @@ export function WalletPanel({ onClose }: { onClose?: () => void }) {
     refresh,
   } = useWallet();
 
-  const statusTone =
+  const statusSkin =
     status === "connected"
-      ? "text-private"
+      ? "bg-fg text-bg"
       : status === "error"
-        ? "text-danger"
-        : "text-fg-dim";
+        ? "bg-danger text-bg"
+        : "bg-bg-inset text-fg-dim";
 
   return (
     <Panel
       title="Midnight wallet"
       right={
-        <span className={`text-xs font-mono ${statusTone}`}>
-          {status}
+        <span className="inline-flex items-center gap-2">
+          <span className={`label border-2 border-border px-2 py-1.5 ${statusSkin}`}>{status}</span>
           {onClose && (
             <button
               type="button"
               onClick={onClose}
-              className="ml-3 text-fg-dim hover:text-fg-muted"
+              className="label size-8 border-2 border-border bg-bg-raised text-fg flex items-center justify-center hover:bg-bg-hover"
               aria-label="Close"
             >
               ✕
@@ -51,7 +56,7 @@ export function WalletPanel({ onClose }: { onClose?: () => void }) {
     >
       {status !== "connected" ? (
         <>
-          <p className="text-sm text-fg-muted">
+          <p className="text-sm text-fg-muted leading-relaxed">
             {availableWallets.length === 0
               ? "No Midnight wallet detected — install an extension and refresh. The console runs without one."
               : `Detected: ${availableWallets.map((w) => w.name).join(", ")}`}
@@ -63,20 +68,24 @@ export function WalletPanel({ onClose }: { onClose?: () => void }) {
           >
             {status === "connecting" ? "Connecting…" : "Connect wallet"}
           </Button>
-          {error && <p className="text-xs text-danger">{error}</p>}
+          {error && (
+            <p className="border-2 border-border bg-danger text-bg font-mono text-xs px-3 py-2 break-words">
+              {error}
+            </p>
+          )}
         </>
       ) : (
         <>
           <div className="flex justify-end">
             <VisibilityTag tone="public" />
           </div>
-          <Row label="Address">
+          <Row label="Address" tone="public">
             <span title={address ?? ""}>{address ? shortAddress(address, 6) : "—"}</span>
           </Row>
           <Row label="DUST (fees)" tone="public">
             {dust ? `${dust.balance} / cap ${dust.cap}` : "—"}
           </Row>
-          <Row label="Proof server" tone={proofServer?.ok ? "private" : "danger"}>
+          <Row label="Proof server" tone={proofServer?.ok ? "neutral" : "danger"}>
             {proofServer ? proofServer.detail : "checking…"}
           </Row>
           <Note>

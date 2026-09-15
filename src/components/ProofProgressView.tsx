@@ -35,15 +35,23 @@ function rank(phase: ProofPhase): number {
   return order.indexOf(phase);
 }
 
+/**
+ * A ruled square, not a dot — and the running one blinks on a step function
+ * rather than breathing. Two states, no in-between.
+ *
+ * Completed steps are filled in black, not in the private green they used to
+ * borrow: "this step finished" is not a statement about who can see anything,
+ * and the two reserved hues are not available for status.
+ */
 function Dot({ tone }: { tone: "done" | "active" | "idle" | "offpath" | "error" }) {
   const cls = {
-    done: "bg-private",
-    active: "bg-accent animate-breathe",
-    error: "bg-danger",
-    offpath: "bg-fg-dim/40",
-    idle: "bg-border-strong",
+    done: "bg-fg border-border",
+    active: "bg-accent border-border animate-blink",
+    error: "bg-danger border-border",
+    offpath: "bg-bg-inset border-fg-dim",
+    idle: "bg-bg-inset border-border",
   }[tone];
-  return <span className={`mt-1.5 size-2 shrink-0 rounded-full ${cls}`} />;
+  return <span aria-hidden className={`mt-0.5 size-3 shrink-0 border-2 ${cls}`} />;
 }
 
 export function ProofProgressView({
@@ -57,38 +65,41 @@ export function ProofProgressView({
   const done = current === "done";
   const errored = current === "error";
 
+  const status = errored
+    ? "failed"
+    : done
+      ? "circuit executed"
+      : current === "idle"
+        ? "ready"
+        : current;
+
   return (
-    <div className="rounded-2xl border border-border bg-bg-raised/70 px-5 py-4 flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-3">
-        <span className="font-display text-[15px]">{title}</span>
-        <span
-          className={`text-xs font-mono ${
-            errored
-              ? "text-danger"
-              : done
-                ? "text-private"
-                : current === "idle"
-                  ? "text-fg-dim"
-                  : "text-accent"
-          }`}
-        >
-          {errored ? "failed" : done ? "circuit executed" : current === "idle" ? "ready" : current}
-        </span>
+    <div className="border-2 border-border bg-bg-raised shadow-hard">
+      <div
+        className={`label flex items-center justify-between gap-3 px-4 py-3 border-b-2 border-border ${
+          errored ? "bg-danger text-bg" : "bg-fg text-bg"
+        }`}
+      >
+        <span className="truncate">{title}</span>
+        <span className="shrink-0">{status}</span>
       </div>
 
-      <ol className="flex flex-col gap-2">
-        {LIVE_PHASES.map((phase) => {
+      <ol className="px-4 py-1">
+        {LIVE_PHASES.map((phase, i) => {
           const reached = done || rank(current) > rank(phase);
           const active = current === phase;
           return (
-            <li key={phase} className="flex gap-2.5 items-start">
+            <li
+              key={phase}
+              className={`flex gap-3 items-start py-2.5 ${i > 0 ? "border-t border-border" : ""}`}
+            >
               <Dot tone={errored && active ? "error" : reached ? "done" : active ? "active" : "idle"} />
-              <div className="flex flex-col">
+              <div className="flex flex-col gap-1 min-w-0">
                 <span className={`text-sm ${reached || active ? "text-fg" : "text-fg-dim"}`}>
                   {PHASE_NOTE[phase]}
                 </span>
                 {active && progress.message && (
-                  <span className="text-xs text-fg-dim">{progress.message}</span>
+                  <span className="font-mono text-[11px] text-fg-dim">{progress.message}</span>
                 )}
               </div>
             </li>
@@ -96,25 +107,26 @@ export function ProofProgressView({
         })}
 
         {OFF_PATH_PHASES.map((phase) => (
-          <li key={phase} className="flex gap-2.5 items-start">
+          <li key={phase} className="flex gap-3 items-start py-2.5 border-t border-border">
             <Dot tone="offpath" />
-            <div className="flex flex-col">
+            <div className="flex flex-col gap-1 min-w-0">
               <span className="text-sm text-fg-dim">{PHASE_NOTE[phase]}</span>
-              <span className="text-xs text-fg-dim/80">{OFF_PATH}</span>
+              <span className="font-mono text-[11px] text-fg-dim">{OFF_PATH}</span>
             </div>
           </li>
         ))}
       </ol>
 
       {progress.error && (
-        <p className="text-sm text-danger border-t border-border/60 pt-2">{progress.error}</p>
+        <p className="border-t-2 border-border bg-danger text-bg font-mono text-xs leading-relaxed px-4 py-3">
+          {progress.error}
+        </p>
       )}
 
-      <p className="text-xs text-fg-dim leading-relaxed border-t border-border/60 pt-2">
+      <p className="border-t-2 border-border px-4 py-3 font-mono text-[11px] text-fg-dim leading-relaxed [&_code]:bg-bg-inset [&_code]:px-1">
         The two live steps run the compiled circuit in process: asserts fire and public ledger
         state really changes. No ZK proof is generated here and nothing is submitted on chain —{" "}
-        <code className="font-mono">npm run test:prove</code> does that part against a real
-        proof server.
+        <code>npm run test:prove</code> does that part against a real proof server.
       </p>
     </div>
   );

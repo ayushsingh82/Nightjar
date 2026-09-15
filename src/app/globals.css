@@ -1,41 +1,53 @@
 @import "tailwindcss";
 
-/* Nightjar — a nightjar hunts in the half hour after sunset, so the palette is
- * dusk rather than midnight: warm charcoal the colour of bark, one ember of
- * the light that is going, and a sky that has already turned.
+/* Nightjar — printed matter.
+ *
+ * A nightjar is a bird you never see; you know it by its call. So the interface
+ * is not atmosphere, it is a printed record: newsprint ground, ink rules, hard
+ * offset shadows, everything stamped rather than lit. Nothing glows, nothing
+ * floats, nothing is blurred. Structure comes from line and from black, and the
+ * page shows its own skeleton — grid lines, rules between rows, uppercase
+ * labels on every block.
  *
  * Two hues are reserved and carry meaning, never decoration:
- *   mint  = private, held on the device, never transmitted
- *   sky   = public, written to the ledger, anyone can read it
- * Ember is the brand — primary actions, the wordmark, focus — and never means
- * anything. If a value on screen is mint or sky, that is telling you who can
- * see it. */
+ *   green = private, held on the device, never transmitted
+ *   blue  = public,  written to the ledger, anyone can read it
+ * Signal orange is the brand — the wordmark, a primary action, focus — and
+ * never means anything. If a value on screen is green or blue, that is telling
+ * you who can see it.
+ *
+ * Both inks are chosen so the same hex works either way round: as type on paper
+ * (6.3:1 / 8.6:1) and as paper reversed out of a solid fill (identical ratios).
+ * A private block and a public block therefore never collapse into each other,
+ * whichever way they are printed. */
 
 :root {
-  /* Surfaces — warm charcoal, each step ~4% lighter, no pure black anywhere. */
-  --bg: #0d0b0a;
-  --bg-raised: #171412;
-  --bg-inset: #110f0e;
-  --bg-hover: #201c19;
+  /* Ground: newsprint, three steps, all warm. `raised` is not elevation — it is
+   * a lighter stock; the black border and the offset shadow do the lifting. */
+  --bg: #ede9de;
+  --bg-raised: #f6f3eb;
+  --bg-inset: #e2ddce;
+  --bg-hover: #dcd6c5;
 
-  /* Borders sit low-contrast on purpose; structure comes from surface, not line. */
-  --border: #2a2521;
-  --border-strong: #3b332c;
+  /* Both border tokens are ink. Weight carries the hierarchy — 2px standard,
+   * 3px emphasis — so a heavier rule is never a different colour. */
+  --border: #0a0a0a;
+  --border-strong: #000000;
 
-  /* Text — warm off-white, so it reads softer than #fff on a warm ground. */
-  --fg: #f0ebe4;
-  --fg-muted: #b0a598;
-  --fg-dim: #7d7367;
+  /* Ink. 16.3:1, 12.0:1 and 6.4:1 on the ground. */
+  --fg: #0a0a0a;
+  --fg-muted: #2b2924;
+  --fg-dim: #57524a;
 
-  /* Brand: the last ember of daylight. Focus, links, the wordmark. */
-  --accent: #e6a75f;
-  --accent-soft: #e6a75f1f;
+  /* Brand: raw signal orange. Only ever a solid block with ink on it (5.9:1).
+   * Never type on paper — it does not carry at 2.8:1, and it is not allowed to
+   * mean anything in the first place. */
+  --accent: #ff4a17;
 
-  /* The two that mean something. Desaturated from the usual web-safe versions
-   * so a screen full of them is calm rather than loud. */
-  --private: #7ed0b0;
-  --public: #8fb4e8;
-  --danger: #ef8a8a;
+  /* The two that mean something, and the one that shouts. */
+  --private: #00603c;
+  --public: #17339e;
+  --danger: #a81414;
 }
 
 @theme inline {
@@ -52,41 +64,89 @@
   --color-private: var(--private);
   --color-public: var(--public);
   --color-danger: var(--danger);
-  --font-sans: var(--font-body), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono);
-  --font-display: var(--font-display);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
 }
 
 html {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 body {
   background: var(--bg);
   color: var(--fg);
-  font-family: var(--font-body), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
 }
 
-/* Display face for headings — the one serif in the system. It is what stops
- * this reading as another dark admin panel. */
+/* Zero radius, everywhere, including the shapes the user agent rounds for us.
+ * Unlayered, so it beats Tailwind's preflight; a `rounded-*` utility would
+ * still win on specificity, which is why there are none left in the tree. */
+*,
+*::before,
+*::after {
+  border-radius: 0;
+}
+
+/* The display face. A heavy grotesque at the weight the system can actually
+ * supply — no webfont, no serif, nothing the sibling project would recognise.
+ * Family and weight only: size, tracking and leading are set per use, because
+ * a 72px lockup wants -0.04em and a 15px uppercase panel head wants +0.01em. */
 .font-display {
-  font-family: var(--font-display), ui-serif, Georgia, serif;
-  font-weight: 400;
-  letter-spacing: -0.015em;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Helvetica Neue", "Arial Black", Arial,
+    sans-serif;
+  font-weight: 800;
 }
 
-/* Dusk: the glow along the horizon, low and off-centre, with the sky already
- * cold above it. Two very wide, very low-opacity radials — atmosphere, never a
- * shape. */
-.bg-dusk {
-  background-image:
-    radial-gradient(58rem 24rem at 50% 104%, #e6a75f26, transparent 66%),
-    radial-gradient(46rem 30rem at 86% -8%, #8fb4e814, transparent 62%);
-  /* Anchored to the viewport, not the document: on a long page a
-   * document-anchored glow ends up somewhere nobody ever scrolls to. */
-  background-attachment: fixed;
+code {
+  font-family: var(--font-geist-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+
+/* The chrome voice: every label, column head and piece of metadata in the app.
+ * Mono, small, uppercase, wide — so a label can never be mistaken for a value. */
+.label {
+  font-family: var(--font-geist-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 10px;
+  line-height: 1.1;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* Hard offset shadows. No blur, no alpha — a printed block sitting on the page
+ * a few millimetres off register. Three weights, matching the border weights. */
+.shadow-hard-sm {
+  box-shadow: 2px 2px 0 0 var(--border-strong);
+}
+.shadow-hard {
+  box-shadow: 4px 4px 0 0 var(--border-strong);
+}
+.shadow-hard-lg {
+  box-shadow: 6px 6px 0 0 var(--border-strong);
+}
+
+/* Anything you can press moves. The block slides into its own shadow and the
+ * shadow disappears under it — no fade, no ease, no hover glow. Written here
+ * rather than as utilities because `hover:` and `disabled:` have to beat the
+ * static shadow classes above, and these rules all sit in the same layer. */
+.press {
+  box-shadow: 3px 3px 0 0 var(--border-strong);
+  transform: translate(0, 0);
+  transition: none;
+}
+.press:hover {
+  box-shadow: 1px 1px 0 0 var(--border-strong);
+  transform: translate(2px, 2px);
+}
+.press:active {
+  box-shadow: 0 0 0 0 var(--border-strong);
+  transform: translate(3px, 3px);
+}
+.press:disabled,
+.press:disabled:hover,
+.press[aria-disabled="true"] {
+  box-shadow: none;
+  transform: none;
 }
 
 /* Numbers that change should not shift the layout under them. */
@@ -94,66 +154,50 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* A hairline that fades out at both ends — softer than a full-width border. */
-.rule-fade {
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--border-strong), transparent);
+/* Wide tables get their own scroller rather than pushing the page sideways. */
+.scroll-x {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
 }
 
-@keyframes breathe {
+/* The one animation left. Two states, no easing, no in-between: a cursor, not a
+ * breath. Anything softer belonged to the old dark theme. */
+@keyframes blink {
   0%,
-  100% {
-    opacity: 0.95;
-  }
-  50% {
-    opacity: 0.4;
-  }
-}
-.animate-breathe {
-  animation: breathe 2.4s ease-in-out infinite;
-}
-
-@keyframes sweep {
-  from {
-    transform: translateX(-110%);
-  }
-  to {
-    transform: translateX(330%);
-  }
-}
-.animate-sweep {
-  animation: sweep 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-}
-
-@keyframes rise {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
+  49% {
     opacity: 1;
-    transform: translateY(0);
+  }
+  50%,
+  100% {
+    opacity: 0;
   }
 }
-.animate-rise {
-  animation: rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+.animate-blink {
+  animation: blink 0.7s steps(1, end) infinite;
 }
 
-/* Focus that matches the brand rather than the browser default. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-blink {
+    animation: none;
+  }
+}
+
+/* Focus: a black ring wrapped in signal orange. Orange alone is only 2.8:1 on
+ * paper, which is not an indicator; against the black ring beside it it is
+ * 5.9:1, and the black ring is 16:1 against everything it ever sits on. */
 *:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: 4px;
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 3px var(--fg);
 }
 
 ::selection {
-  background: var(--accent-soft);
-  color: var(--fg);
+  background: var(--accent);
+  color: #0a0a0a;
 }
 
-/* Scrollbars inside panels, so a long ledger does not punch a grey bar through
- * the palette. */
+/* Black scrollbars, on purpose: a ledger long enough to scroll should say so. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-color: var(--fg) transparent;
 }

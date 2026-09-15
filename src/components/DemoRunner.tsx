@@ -144,28 +144,37 @@ export function DemoRunner({ onFinished }: { onFinished?: () => void }) {
         </Button>
       }
     >
-      <ol className="flex flex-col gap-2">
+      <ol className="border-2 border-border">
         {STEPS.map((step, i) => {
           const state =
             failed === i ? "failed" : i < cursor || (i === cursor && !running) ? "done" : i === cursor ? "active" : "idle";
+          // Black is "done", signal orange is "running", red is "stopped here".
+          // The two reserved hues are not available for run state.
+          const marker = {
+            done: "bg-fg text-bg",
+            active: "bg-accent text-fg animate-blink",
+            failed: "bg-danger text-bg",
+            idle: "bg-bg-inset text-fg-dim",
+          }[state];
           return (
-            <li key={step.title} className="flex gap-3 items-start">
+            <li
+              key={step.title}
+              className={`flex gap-3 items-start px-3.5 py-3 ${
+                i > 0 ? "border-t border-border" : ""
+              } ${state === "active" ? "bg-bg-inset" : ""}`}
+            >
               <span
-                className={`mt-0.5 size-5 shrink-0 rounded-full border text-[11px] flex items-center justify-center ${
-                  state === "done"
-                    ? "border-private/40 text-private"
-                    : state === "active"
-                      ? "border-accent/50 text-accent animate-pulse"
-                      : state === "failed"
-                        ? "border-danger/40 text-danger"
-                        : "border-border text-fg-dim"
-                }`}
+                className={`label mt-0.5 size-6 shrink-0 border-2 border-border flex items-center justify-center ${marker}`}
               >
-                {state === "done" ? "✓" : state === "failed" ? "!" : i + 1}
+                {state === "done" ? "\u2713" : state === "failed" ? "!" : i + 1}
               </span>
-              <div className="flex flex-col">
-                <span className={state === "idle" ? "text-fg-dim" : ""}>{step.title}</span>
-                <span className="text-xs text-fg-dim">{step.note}</span>
+              <div className="flex flex-col gap-1 min-w-0">
+                <span className={`text-sm ${state === "idle" ? "text-fg-dim" : "text-fg"}`}>
+                  {step.title}
+                </span>
+                <span className="font-mono text-[11px] text-fg-dim leading-relaxed">
+                  {step.note}
+                </span>
               </div>
             </li>
           );

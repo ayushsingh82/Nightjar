@@ -1,16 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" role="img" aria-label="Nightjar">
   <title>Nightjar</title>
-  <defs>
-    <linearGradient id="nj-ember" x1="0" y1="1" x2="0" y2="0">
-      <stop offset="0%" stop-color="#e6a75f" stop-opacity="0.35"/>
-      <stop offset="100%" stop-color="#f0bd7f"/>
-    </linearGradient>
-  </defs>
-  <!-- the sun, most of the way down -->
-  <path d="M5.6 18.2a6.4 6.4 0 0 1 12.8 0Z" fill="url(#nj-ember)"/>
-  <!-- the horizon it is going behind. `currentColor` in the app; a fixed
-       ink tone here so the file stands alone as a favicon or an og asset. -->
-  <path d="M1.8 18.2h20.4" stroke="#e8e6f0" stroke-opacity="0.35" stroke-width="1.3" stroke-linecap="round"/>
-  <!-- the bird, still up -->
-  <path d="M4.8 8.6c2.2-2.8 4.4-2.9 5.5-1 1.1-1.9 3.3-1.8 5.5 1" stroke="#e8e6f0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- printed on paper, stamped in ink: no gradient, no glow, square caps -->
+  <rect x="0" y="0" width="24" height="24" fill="#ede9de"/>
+  <rect x="1" y="1" width="22" height="22" stroke="#0a0a0a" stroke-width="2"/>
+  <!-- the sun, most of the way down — one flat block of signal orange -->
+  <path d="M7 18a5 5 0 0 1 10 0Z" fill="#ff4a17"/>
+  <!-- the horizon it is going behind -->
+  <path d="M3.5 18h17" stroke="#0a0a0a" stroke-width="2" stroke-linecap="square"/>
+  <!-- the bird, still up: two mitred chevrons, so it survives at 16px -->
+  <path d="M4.5 10.5 8.25 7 12 10 15.75 7 19.5 10.5" stroke="#0a0a0a" stroke-width="2.4" stroke-linecap="square" stroke-linejoin="miter"/>
 </svg>

@@ -44,7 +44,11 @@ function Console() {
           type="button"
           disabled={busy}
           onClick={() => void run({ type: "reset" })}
-          className="hidden sm:flex items-center justify-center h-10 px-4 rounded-full border border-border-strong text-xs font-medium text-fg-muted hover:text-fg hover:border-fg-dim transition-colors disabled:opacity-40"
+          className={`press hidden sm:inline-flex items-center justify-center h-10 px-3 border-2 font-mono text-[11px] font-bold uppercase tracking-[0.1em] ${
+            busy
+              ? "bg-bg-inset text-fg-dim border-fg-dim cursor-not-allowed"
+              : "bg-bg-raised text-fg border-border"
+          }`}
         >
           Reset session
         </button>
@@ -53,12 +57,11 @@ function Console() {
         <>
           Every circuit call in this console runs the compiled Compact contract in process:
           asserts fire and public ledger state really changes. Proving is exercised separately
-          against a real proof server —{" "}
-          <code className="font-mono">npm run proof-server:up && npm run test:prove</code>.
+          against a real proof server — <code>npm run proof-server:up && npm run test:prove</code>.
         </>
       }
     >
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-6">
         <ExecutionNotice />
 
         {error && (
@@ -107,7 +110,8 @@ function Console() {
 /**
  * What is actually executing, stated at the top of every tab. A demo that
  * overstates itself is worth less than one that does not, so this is deliberately
- * the first thing on the page.
+ * the first thing on the page — and it is printed in black rather than in the
+ * brand colour, because the brand is not allowed to make a claim.
  */
 function ExecutionNotice() {
   const { snapshot } = useMarket();
@@ -116,23 +120,27 @@ function ExecutionNotice() {
   const { execution } = snapshot;
 
   return (
-    <div className="rounded-2xl border border-accent/25 bg-accent/[0.05] px-5 py-4">
+    <div className="border-2 border-border bg-bg-raised shadow-hard">
+      <div className="label bg-fg text-bg px-4 py-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
+        <span>How this runs</span>
+        <span>{execution.mode}</span>
+      </div>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-start justify-between gap-4 text-left"
+        aria-expanded={open}
+        className="w-full flex items-start justify-between gap-4 text-left px-4 py-4 hover:bg-bg-hover"
       >
-        <span className="text-sm">
-          <span className="text-accent font-medium">How this runs: {execution.mode}.</span>{" "}
-          <span className="text-fg-muted">{execution.source}</span>
+        <span className="text-sm text-fg-muted leading-relaxed">{execution.source}</span>
+        <span className="label shrink-0 border-2 border-border px-2 py-1.5 text-fg">
+          {open ? "Hide" : "Details"}
         </span>
-        <span className="text-xs text-fg-dim shrink-0 pt-0.5">{open ? "hide" : "details"}</span>
       </button>
       {open && (
-        <ul className="mt-3 flex flex-col gap-2 text-xs text-fg-muted leading-relaxed border-t border-accent/20 pt-3">
+        <ul className="border-t-2 border-border px-4 py-4 flex flex-col gap-3 text-xs text-fg-muted leading-relaxed">
           {execution.caveats.map((c) => (
-            <li key={c} className="flex gap-2">
-              <span className="text-fg-dim shrink-0">—</span>
+            <li key={c} className="flex gap-3">
+              <span aria-hidden className="mt-1.5 size-1.5 shrink-0 bg-fg" />
               <span>{c}</span>
             </li>
           ))}

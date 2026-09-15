@@ -9,6 +9,11 @@
 // Nothing on this screen is illustrative. The left side is `sim.ledger`, the
 // right side is each `Agent`'s witness state, and the leak check at the bottom
 // searches the actual serialized state for the actual private values.
+//
+// This is the one screen where the colour rule has to do real work, so every
+// block declares its side of the boundary in its own header, and the serialized
+// state is printed reversed out in black — it is the public record, and it
+// should look like a different document from the ones around it.
 
 import {
   useMarket,
@@ -16,17 +21,21 @@ import {
   type ChainEscrow,
   type MarketSnapshot,
 } from "@/lib/midnight";
-import { Hex, Note, Panel, Row, Stat, money } from "./market-ui";
+import { Hex, Note, Panel, Row, Stat, VisibilityTag, money } from "./market-ui";
 
 /** A real run settles well over a hundred escrows; the panel shows the tail. */
 const ESCROW_PREVIEW = 12;
+
+/** Column heads, everywhere in the app: mono, uppercase, ruled off underneath. */
+const TH = "label text-fg-dim px-3 py-2.5 bg-bg-inset border-b-2 border-border";
+const TD = "px-3 py-2 border-b border-border";
 
 export function ExplorerPanel() {
   const { snapshot } = useMarket();
   if (!snapshot) return null;
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-6">
       <Panel
         title="What the chain sees vs. what stays private"
         subtitle="Both columns are read from live state — the left from the contract's public ledger, the right from the agents' witness data."
@@ -34,7 +43,7 @@ export function ExplorerPanel() {
         <LeakCheck snapshot={snapshot} />
       </Panel>
 
-      <div className="grid gap-5 lg:grid-cols-2 items-start">
+      <div className="grid gap-6 lg:grid-cols-2 items-start">
         <ChainColumn snapshot={snapshot} />
         <PrivateColumn snapshot={snapshot} />
       </div>
@@ -75,8 +84,8 @@ function LeakCheck({ snapshot }: { snapshot: MarketSnapshot }) {
   const clean = saltsLeaked.length === 0 && namedInEscrows === 0;
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="grid gap-3 sm:grid-cols-3">
+    <div className="flex flex-col gap-5">
+      <div className="grid gap-4 sm:grid-cols-3">
         <Stat label="Private job rows" value={String(rows.length)} tone="private" />
         <Stat
           label="Escrow rows naming a seller"
@@ -88,27 +97,25 @@ function LeakCheck({ snapshot }: { snapshot: MarketSnapshot }) {
       </div>
 
       {sellers.length > 0 && (
-        <div className="rounded-xl border border-border/70 bg-bg-inset/60 overflow-hidden">
-          <table className="w-full text-xs">
-            <thead className="text-fg-dim">
-              <tr className="text-left">
-                <th className="font-normal px-4 py-2">Seller</th>
-                <th className="font-normal text-right px-4">Escrows sold</th>
-                <th className="font-normal text-right px-4">Agent id in public state</th>
-                <th className="font-normal text-right px-4 py-2">…of those, escrow rows</th>
+        <div className="border-2 border-border bg-bg-raised scroll-x">
+          <table className="w-full border-separate border-spacing-0 text-xs min-w-[34rem]">
+            <thead>
+              <tr>
+                <th className={`${TH} text-left`}>Seller</th>
+                <th className={`${TH} text-right`}>Escrows sold</th>
+                <th className={`${TH} text-right`}>Agent id in public state</th>
+                <th className={`${TH} text-right`}>…of those, escrow rows</th>
               </tr>
             </thead>
             <tbody>
               {sellers.map((s) => (
-                <tr key={s.name} className="border-t border-border/60">
-                  <td className="px-4 py-2">{s.name}</td>
-                  <td className="text-right px-4 font-mono tnum text-private">{s.sells}</td>
-                  <td className="text-right px-4 font-mono tnum text-public">
+                <tr key={s.name}>
+                  <td className={`${TD} font-mono`}>{s.name}</td>
+                  <td className={`${TD} text-right font-mono tnum text-private`}>{s.sells}</td>
+                  <td className={`${TD} text-right font-mono tnum text-public`}>
                     {s.appearances}×
                   </td>
-                  <td className="text-right px-4 py-2 font-mono tnum text-private">
-                    {s.inEscrows}
-                  </td>
+                  <td className={`${TD} text-right font-mono tnum text-private`}>{s.inEscrows}</td>
                 </tr>
               ))}
             </tbody>
@@ -116,11 +123,20 @@ function LeakCheck({ snapshot }: { snapshot: MarketSnapshot }) {
         </div>
       )}
 
-      <p className={`text-xs leading-relaxed ${clean ? "text-private" : "text-danger"}`}>
-        {clean
-          ? `Checked, against the live serialized state: none of the ${snapshot.agents.length} ledger salts appear anywhere in it, and none of the ${escrows.length} escrow rows name a seller. A seller's agent id does appear in the public record — it has to, or the bond could not be slashed and the commitment could not be opened — but never in an escrow row, and so never beside a price or an outcome.`
-          : `Leak: ${saltsLeaked.length} salt(s) and ${namedInEscrows} escrow row(s) expose something they should not.`}
-      </p>
+      <div className="flex flex-col sm:flex-row gap-4 border-2 border-border p-4">
+        <span
+          className={`label shrink-0 self-start inline-flex items-center justify-center border-2 border-border px-2 py-2 sm:w-[9rem] ${
+            clean ? "bg-private text-bg" : "bg-danger text-bg"
+          }`}
+        >
+          {clean ? "No leak" : "Leak"}
+        </span>
+        <p className="text-xs leading-relaxed text-fg-muted">
+          {clean
+            ? `Checked, against the live serialized state: none of the ${snapshot.agents.length} ledger salts appear anywhere in it, and none of the ${escrows.length} escrow rows name a seller. A seller's agent id does appear in the public record — it has to, or the bond could not be slashed and the commitment could not be opened — but never in an escrow row, and so never beside a price or an outcome.`
+            : `${saltsLeaked.length} salt(s) and ${namedInEscrows} escrow row(s) expose something they should not.`}
+        </p>
+      </div>
     </div>
   );
 }
@@ -131,32 +147,40 @@ function ChainColumn({ snapshot }: { snapshot: MarketSnapshot }) {
   const { chain } = snapshot;
 
   return (
-    <div className="flex flex-col gap-5">
-      <Panel title="What the chain sees" subtitle="marketplace.compact — public ledger state">
-        <Row label="arbiterPk">
+    <div className="min-w-0 flex flex-col gap-6">
+      <Panel
+        title="What the chain sees"
+        subtitle="marketplace.compact — public ledger state"
+        right={<VisibilityTag tone="public" />}
+      >
+        <Row label="arbiterPk" tone="public">
           <Hex value={chain.arbiterPk} chars={16} />
         </Row>
-        <Row label="escrowCount">{chain.escrowCount}</Row>
-        <Row label="slashedTotal">{money(chain.slashedTotal)}</Row>
+        <Row label="escrowCount" tone="public">
+          {chain.escrowCount}
+        </Row>
+        <Row label="slashedTotal" tone="public">
+          {money(chain.slashedTotal)}
+        </Row>
 
         <SubTable title="bonds: Map<AgentId, Uint>">
           {chain.bonds.map((b) => (
-            <tr key={b.agentId} className="border-t border-border/60">
-              <td className="py-1">
+            <tr key={b.agentId}>
+              <td className={TD}>
                 <Hex value={b.agentId} chars={14} />
               </td>
-              <td className="text-right">{money(b.amount)}</td>
+              <td className={`${TD} text-right font-mono tnum`}>{money(b.amount)}</td>
             </tr>
           ))}
         </SubTable>
 
         <SubTable title="reputationCommitments: Map<AgentId, Bytes>">
           {chain.reputationCommitments.map((c) => (
-            <tr key={c.agentId} className="border-t border-border/60">
-              <td className="py-1">
+            <tr key={c.agentId}>
+              <td className={TD}>
                 <Hex value={c.agentId} chars={14} />
               </td>
-              <td className="text-right">
+              <td className={`${TD} text-right`}>
                 <Hex value={c.commitment} chars={16} />
               </td>
             </tr>
@@ -164,24 +188,28 @@ function ChainColumn({ snapshot }: { snapshot: MarketSnapshot }) {
         </SubTable>
 
         {chain.escrows.length > 0 && (
-          <div className="flex flex-col gap-1">
-            <span className="text-xs text-fg-dim">
+          <div className="flex flex-col gap-2">
+            <span className="label text-fg-dim">
               escrows: Map&lt;EscrowId, EscrowRecord&gt; · {chain.escrows.length} rows
-              {chain.escrows.length > ESCROW_PREVIEW && `, showing the last ${ESCROW_PREVIEW}`}
+              {chain.escrows.length > ESCROW_PREVIEW && `, last ${ESCROW_PREVIEW}`}
             </span>
-            {chain.escrows.slice(-ESCROW_PREVIEW).map((e) => (
-              <div
-                key={e.escrowId}
-                className="rounded-lg border border-border p-2 text-xs flex flex-col gap-0.5"
-              >
-                <Hex value={e.escrowId} chars={32} />
-                <span className="text-fg-dim">
-                  buyer <Hex value={e.buyer} chars={10} /> · seller{" "}
-                  <Hex value={e.sellerCommit} chars={10} /> (commitment) · {money(e.amount)} ·{" "}
-                  {e.state}
-                </span>
-              </div>
-            ))}
+            <div className="border-2 border-border">
+              {chain.escrows.slice(-ESCROW_PREVIEW).map((e, i) => (
+                <div
+                  key={e.escrowId}
+                  className={`px-3 py-2 text-xs flex flex-col gap-1 ${
+                    i > 0 ? "border-t border-border" : ""
+                  }`}
+                >
+                  <Hex value={e.escrowId} chars={32} />
+                  <span className="text-fg-dim font-mono text-[11px]">
+                    buyer <Hex value={e.buyer} chars={10} /> · seller{" "}
+                    <Hex value={e.sellerCommit} chars={10} /> (commitment) · {money(e.amount)} ·{" "}
+                    {e.state}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -196,8 +224,11 @@ function ChainColumn({ snapshot }: { snapshot: MarketSnapshot }) {
       <Panel
         title="Serialized contract state"
         subtitle={`byte-for-byte what an indexer returns · sha256 ${chain.stateDigest.slice(0, 16)}…`}
+        right={<VisibilityTag tone="public" />}
       >
-        <pre className="text-[11px] font-mono whitespace-pre-wrap break-all max-h-72 overflow-auto text-fg-muted">
+        {/* Reversed out: this is the published record, and it should not look
+            like the private ledgers printed beside it. */}
+        <pre className="border-2 border-border bg-fg text-bg font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all max-h-72 overflow-auto p-3">
           {chain.serialized}
         </pre>
         <Note>
@@ -212,11 +243,13 @@ function ChainColumn({ snapshot }: { snapshot: MarketSnapshot }) {
 
 function SubTable({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-1">
-      <span className="text-xs text-fg-dim">{title}</span>
-      <table className="w-full text-xs">
-        <tbody>{children}</tbody>
-      </table>
+    <div className="flex flex-col gap-2">
+      <span className="label text-fg-dim">{title}</span>
+      <div className="border-2 border-border scroll-x">
+        <table className="w-full border-separate border-spacing-0 text-xs">
+          <tbody>{children}</tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -225,7 +258,7 @@ function SubTable({ title, children }: { title: string; children: React.ReactNod
 
 function PrivateColumn({ snapshot }: { snapshot: MarketSnapshot }) {
   return (
-    <div className="flex flex-col gap-5">
+    <div className="min-w-0 flex flex-col gap-6">
       {snapshot.agents.map((a) => (
         <PrivateAgent key={a.key} agent={a} />
       ))}
@@ -239,27 +272,36 @@ function PrivateAgent({ agent }: { agent: AgentView }) {
     <Panel
       title={`What ${agent.name} actually holds`}
       subtitle="witness state — never transmitted, never committed in the clear"
+      right={<VisibilityTag tone="private" />}
     >
-      <Row label="Jobs">{agent.stats.totalJobs}</Row>
-      <Row label="Successful">{agent.stats.successfulJobs}</Row>
-      <Row label="Distinct counterparties">{counterparties}</Row>
-      <Row label="Volume">{money(agent.stats.volume)}</Row>
-      <Row label="ledgerSalt (commitment opening)">
-        <Hex value={agent.ledgerSalt} chars={16} />
+      <Row label="Jobs" tone="private">
+        {agent.stats.totalJobs}
+      </Row>
+      <Row label="Successful" tone="private">
+        {agent.stats.successfulJobs}
+      </Row>
+      <Row label="Distinct counterparties" tone="private">
+        {counterparties}
+      </Row>
+      <Row label="Volume" tone="private">
+        {money(agent.stats.volume)}
+      </Row>
+      <Row label="ledgerSalt (commitment opening)" tone="private">
+        <Hex value={agent.ledgerSalt} chars={16} tone="private" />
       </Row>
       {agent.jobs.length > 0 && (
-        <div className="max-h-48 overflow-auto rounded-lg border border-border p-2">
-          <table className="w-full text-[11px] font-mono">
+        <div className="max-h-48 overflow-y-auto scroll-x border-2 border-border">
+          <table className="w-full border-separate border-spacing-0 text-[11px] font-mono">
             <tbody>
               {agent.jobs.map((j, i) => (
                 <tr key={`${j.client}-${i}`}>
-                  <td className="text-fg-dim pr-2">{i + 1}</td>
-                  <td className="truncate">{j.client.slice(0, 16)}…</td>
-                  <td className="text-right pl-2">{money(j.price)}</td>
-                  <td className={`text-right pl-2 ${j.success ? "text-private" : "text-danger"}`}>
+                  <td className={`${TD} text-fg-dim tnum w-8`}>{i + 1}</td>
+                  <td className={`${TD} truncate text-private`}>{j.client.slice(0, 16)}…</td>
+                  <td className={`${TD} text-right tnum`}>{money(j.price)}</td>
+                  <td className={`${TD} text-right ${j.success ? "text-fg" : "text-danger font-bold"}`}>
                     {j.success ? "ok" : "fail"}
                   </td>
-                  <td className="text-right pl-2 text-fg-dim">{j.escrowId ? "escrow" : "—"}</td>
+                  <td className={`${TD} text-right text-fg-dim`}>{j.escrowId ? "escrow" : "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -290,10 +332,11 @@ function Settlement({ snapshot }: { snapshot: MarketSnapshot }) {
       title="A settlement, as an observer sees it"
       subtitle={`escrow ${settled.escrowId.slice(0, 24)}… · ${settled.state}`}
     >
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-fg-dim uppercase tracking-wide">Carried on chain</span>
-          <ul className="text-xs flex flex-col gap-1">
+      <div className="grid gap-px sm:grid-cols-2 border-2 border-border bg-border">
+        <div className="bg-bg-raised p-4 flex flex-col gap-3">
+          <VisibilityTag tone="public" />
+          <span className="label text-fg-dim">Carried on chain</span>
+          <ul className="text-xs flex flex-col gap-2 leading-relaxed">
             <li>
               escrowId — <Hex value={settled.escrowId} chars={20} /> (32 CSPRNG bytes, links to
               nothing)
@@ -317,9 +360,10 @@ function Settlement({ snapshot }: { snapshot: MarketSnapshot }) {
             <li>state — {settled.state}</li>
           </ul>
         </div>
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-fg-dim uppercase tracking-wide">Not carried</span>
-          <ul className="text-xs flex flex-col gap-1 text-fg-dim">
+        <div className="bg-bg-raised p-4 flex flex-col gap-3">
+          <VisibilityTag tone="private" />
+          <span className="label text-fg-dim">Not carried</span>
+          <ul className="text-xs flex flex-col gap-2 leading-relaxed text-fg-muted">
             <li>the seller&apos;s other {Math.max(sellerJobs - 1, 0)} jobs</li>
             <li>who any of those clients were</li>
             <li>what any of them paid</li>
@@ -343,28 +387,29 @@ function Settlement({ snapshot }: { snapshot: MarketSnapshot }) {
 function EventLog({ snapshot }: { snapshot: MarketSnapshot }) {
   if (snapshot.events.length === 0) return null;
   return (
-    <Panel title="Ledger writes" subtitle="Actual before/after diff of public state, per circuit call">
-      <div className="flex flex-col gap-2 max-h-96 overflow-auto">
-        {[...snapshot.events].reverse().map((ev) => (
-          <div
-            key={ev.seq}
-            className="border-t border-border/60 pt-2 first:border-0 first:pt-0 text-xs"
-          >
-            <div className="flex justify-between gap-3">
-              <span className="font-mono">
+    <Panel
+      title="Ledger writes"
+      subtitle="Actual before/after diff of public state, per circuit call"
+      right={<VisibilityTag tone="public" />}
+    >
+      <div className="border-2 border-border max-h-96 overflow-y-auto">
+        {[...snapshot.events].reverse().map((ev, i) => (
+          <div key={ev.seq} className={`px-3 py-3 text-xs ${i > 0 ? "border-t border-border" : ""}`}>
+            <div className="flex flex-wrap justify-between gap-3">
+              <span className="font-mono font-bold tnum">
                 #{ev.seq} {ev.circuit}
               </span>
-              <span className="text-fg-dim">{ev.actor}</span>
+              <span className="label text-fg-dim">{ev.actor}</span>
             </div>
-            <div className="text-fg-dim">{ev.detail}</div>
-            <ul className="mt-1 flex flex-col gap-0.5 font-mono text-[11px]">
+            <div className="text-fg-dim mt-1.5 leading-relaxed">{ev.detail}</div>
+            <ul className="mt-2 flex flex-col gap-1 font-mono text-[11px] border-l-2 border-border pl-3">
               {ev.ledgerWrites.map((w) => (
-                <li key={w} className="text-fg-muted">
+                <li key={w} className="text-fg-muted break-all">
                   {w}
                 </li>
               ))}
             </ul>
-            <div className="text-[11px] text-fg-dim mt-0.5">
+            <div className="label text-fg-dim mt-2.5">
               state sha256 <Hex value={ev.stateDigest} chars={16} />
             </div>
           </div>

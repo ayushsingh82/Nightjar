@@ -3,10 +3,15 @@
 // A judge lands here before they land anywhere else, so this page has one job:
 // say what the thing is, show that the numbers on it are measured rather than
 // claimed, and get out of the way. The console is one click from the top.
+//
+// Laid out as a broadsheet: full-bleed bands divided by 3px rules, one
+// oversized statement at the top, everything below it in ruled cells that show
+// their own grid.
 
 import Link from "next/link";
 import { BRAND } from "@/lib/brand";
 import { Mark } from "./AppShell";
+import { VisibilityTag } from "./market-ui";
 
 /** Measured, not estimated — see `npm run test:prove`. */
 const FACTS = [
@@ -42,136 +47,174 @@ const STEPS = [
   },
 ];
 
+/**
+ * Implementation status, deliberately *not* printed in the reserved hues: these
+ * rows say how finished something is, which is not a statement about who can
+ * see it. Solid ink, outlined ink, and dead stock instead.
+ */
+const STATUS = [
+  {
+    tag: "Real",
+    skin: "bg-fg text-bg",
+    body: "The Compact contract, its ten circuits and their verifier keys; transaction assembly against the compiled contract; proving against a proof server; the wallet session.",
+  },
+  {
+    tag: "Real, in process",
+    skin: "bg-bg-raised text-fg",
+    body: "Every circuit call the console makes. Asserts fire and public ledger state actually changes — the explorer reads it back byte for byte.",
+  },
+  {
+    tag: "Not yet",
+    skin: "bg-bg-inset text-fg-dim",
+    body: "Submission to a live network. Balancing and submission need a funded wallet in a browser, and there is no headless wallet for this stack to automate it.",
+  },
+];
+
 export function Landing() {
   return (
-    <div className="flex-1 bg-bg bg-dusk">
-      <header className="mx-auto max-w-5xl px-6 h-20 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Mark className="h-7 w-7 text-fg" />
-          <span className="font-display text-lg tracking-tight">{BRAND.name}</span>
+    <div className="flex-1 bg-bg flex flex-col">
+      <header className="border-b-[3px] border-border">
+        <div className="mx-auto max-w-5xl px-4 md:px-6 h-[72px] flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <Mark className="h-9 w-9 shrink-0 text-fg" />
+            <span className="font-display text-[20px] uppercase tracking-[-0.02em] leading-none">
+              {BRAND.name}
+            </span>
+          </div>
+          <Link
+            href="/console"
+            className="press inline-flex items-center h-10 px-4 border-2 border-border bg-bg-raised text-fg font-mono text-[11px] font-bold uppercase tracking-[0.12em]"
+          >
+            Open the console
+          </Link>
         </div>
-        <Link
-          href="/console"
-          className="h-10 px-5 rounded-full border border-border-strong text-sm text-fg-muted hover:text-fg hover:border-fg-dim transition-colors flex items-center"
-        >
-          Open the console
-        </Link>
       </header>
 
       {/* Hero */}
-      <section className="mx-auto max-w-5xl px-6 pt-16 pb-20 animate-rise">
-        <p className="text-xs uppercase tracking-[0.18em] text-fg-dim">
+      <section className="mx-auto max-w-5xl px-4 md:px-6 pt-12 pb-14">
+        <p className="label inline-block bg-fg text-bg px-2.5 py-2">
           Built on Midnight · Compact 0.23
         </p>
-        <h1 className="font-display text-[clamp(2.5rem,7vw,4.5rem)] leading-[1.05] mt-5 max-w-3xl">
+        <h1 className="font-display mt-6 uppercase text-[clamp(2.4rem,8.4vw,5.25rem)] leading-[0.9] tracking-[-0.04em] max-w-4xl">
           {BRAND.promise}
         </h1>
-        <p className="mt-6 text-fg-muted text-lg leading-relaxed max-w-2xl">
+        <p className="mt-7 max-w-2xl text-[17px] text-fg-muted leading-relaxed">
           Agents hire and pay each other. Their track record is the asset — and publishing it
           hands every client, price and outcome to a competitor. Nightjar keeps the record on
           the device and puts a zero-knowledge proof about it on the wire instead.
         </p>
 
-        <div className="mt-10 flex flex-wrap items-center gap-3">
+        <div className="mt-9 flex flex-wrap items-center gap-5">
           <Link
             href="/console"
-            className="h-12 px-7 rounded-full bg-accent text-[#0d0b0a] font-semibold text-sm flex items-center hover:brightness-110 transition-all"
+            className="press inline-flex items-center h-12 px-6 border-2 border-border bg-accent text-fg font-mono text-xs font-bold uppercase tracking-[0.14em]"
           >
             Open the console
           </Link>
-          <span className="text-xs text-fg-dim max-w-xs leading-relaxed">
+          <span className="font-mono text-[11px] text-fg-dim max-w-xs leading-relaxed">
             Runs the marketplace, both dashboards and the chain-vs-private explorer against
             the compiled contract.
           </span>
         </div>
       </section>
 
-      <div className="mx-auto max-w-5xl px-6">
-        <div className="rule-fade" />
-      </div>
-
       {/* Measured facts */}
-      <section className="mx-auto max-w-5xl px-6 py-16">
-        <div className="grid gap-4 sm:grid-cols-3">
-          {FACTS.map((f) => (
-            <div
-              key={f.label}
-              className="rounded-2xl border border-border/70 bg-bg-raised/50 px-6 py-6"
-            >
-              <div className="font-display text-4xl text-accent tnum">{f.value}</div>
-              <div className="mt-3 text-sm text-fg">{f.label}</div>
-              <div className="mt-1 text-xs text-fg-dim">{f.sub}</div>
+      <section className="border-t-[3px] border-border">
+        <div className="mx-auto max-w-5xl px-4 md:px-6 py-14">
+          <div className="border-2 border-border bg-bg-raised shadow-hard-lg">
+            <div className="label bg-fg text-bg px-4 py-3">
+              Measured · npm run test:prove · not an estimate
             </div>
-          ))}
+            <div className="grid sm:grid-cols-3">
+              {FACTS.map((f, i) => (
+                <div
+                  key={f.label}
+                  className={`px-5 py-6 ${
+                    i > 0 ? "border-t-2 sm:border-t-0 sm:border-l-2 border-border" : ""
+                  }`}
+                >
+                  <div className="label text-fg-dim">Fig. 0{i + 1}</div>
+                  <div className="mt-4 font-mono tnum font-bold tracking-tight leading-none text-[clamp(2rem,5.2vw,2.75rem)]">
+                    {f.value}
+                  </div>
+                  <div className="mt-4 text-sm leading-snug">{f.label}</div>
+                  <div className="mt-2 font-mono text-[11px] text-fg-dim leading-snug">{f.sub}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <p className="mt-5 font-mono text-[11px] text-fg-dim leading-relaxed max-w-2xl [&_code]:bg-bg-inset [&_code]:px-1">
+            These are timings from <code>npm run test:prove</code>, which assembles real
+            transactions and proves them against a <code>midnight-proof-server</code>{" "}
+            container. No part of this page is an estimate.
+          </p>
         </div>
-        <p className="mt-5 text-xs text-fg-dim leading-relaxed max-w-2xl">
-          These are timings from{" "}
-          <code className="font-mono text-fg-muted">npm run test:prove</code>, which assembles
-          real transactions and proves them against a{" "}
-          <code className="font-mono text-fg-muted">midnight-proof-server</code> container. No
-          part of this page is an estimate.
-        </p>
       </section>
 
       {/* How it works */}
-      <section className="mx-auto max-w-5xl px-6 pb-20">
-        <h2 className="font-display text-3xl">How it works</h2>
-        <div className="mt-8 grid gap-px bg-border/60 rounded-2xl overflow-hidden border border-border/60">
-          {STEPS.map((s) => (
-            <div
-              key={s.n}
-              className="bg-bg-raised/70 px-6 py-6 grid gap-4 sm:grid-cols-[3rem_1fr_auto] items-start"
-            >
-              <span className="font-mono text-xs text-fg-dim pt-1">{s.n}</span>
-              <div>
-                <h3 className="text-fg">{s.title}</h3>
-                <p className="mt-1.5 text-sm text-fg-muted leading-relaxed max-w-2xl">{s.body}</p>
-              </div>
-              <span
-                className={`justify-self-start sm:justify-self-end shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-[0.08em] ${
-                  s.tone === "private"
-                    ? "bg-private/10 text-private"
-                    : "bg-public/10 text-public"
+      <section className="border-t-[3px] border-border">
+        <div className="mx-auto max-w-5xl px-4 md:px-6 py-14">
+          <h2 className="font-display uppercase text-[clamp(1.75rem,5vw,2.5rem)] leading-none tracking-[-0.03em]">
+            How it works
+          </h2>
+          <div className="mt-8 border-2 border-border bg-bg-raised shadow-hard">
+            {STEPS.map((s, i) => (
+              <div
+                key={s.n}
+                className={`grid gap-x-5 gap-y-3 sm:grid-cols-[4rem_1fr_auto] px-5 py-6 ${
+                  i > 0 ? "border-t-2 border-border" : ""
                 }`}
               >
-                <span
-                  className={`w-1.5 h-1.5 rounded-full ${
-                    s.tone === "private" ? "bg-private" : "bg-public"
-                  }`}
-                />
-                {s.tone === "private" ? "Device only" : "On-chain"}
-              </span>
-            </div>
-          ))}
+                <span className="font-mono font-bold text-[26px] leading-none tracking-tight tnum">
+                  {s.n}
+                </span>
+                <div className="min-w-0">
+                  <h3 className="font-display text-[15px] uppercase tracking-[0.015em] leading-tight">
+                    {s.title}
+                  </h3>
+                  <p className="mt-2.5 text-sm text-fg-muted leading-relaxed max-w-2xl">
+                    {s.body}
+                  </p>
+                </div>
+                <span className="justify-self-start sm:justify-self-end self-start">
+                  <VisibilityTag tone={s.tone} />
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
       {/* The honest bit */}
-      <section className="mx-auto max-w-5xl px-6 pb-24">
-        <div className="rounded-2xl border border-border/70 bg-bg-inset/50 px-6 py-6">
-          <h2 className="font-display text-xl">What is real, and what is not</h2>
-          <ul className="mt-4 flex flex-col gap-2 text-sm text-fg-muted leading-relaxed">
-            <li>
-              <span className="text-private">Real:</span> the Compact contract, its ten
-              circuits and their verifier keys; transaction assembly against the compiled
-              contract; proving against a proof server; the wallet session.
-            </li>
-            <li>
-              <span className="text-public">Real, in process:</span> every circuit call the
-              console makes. Asserts fire and public ledger state actually changes — the
-              explorer reads it back byte for byte.
-            </li>
-            <li>
-              <span className="text-fg-dim">Not yet:</span> submission to a live network.
-              Balancing and submission need a funded wallet in a browser, and there is no
-              headless wallet for this stack to automate it.
-            </li>
+      <section className="border-t-[3px] border-border">
+        <div className="mx-auto max-w-5xl px-4 md:px-6 py-14">
+          <h2 className="font-display uppercase text-[clamp(1.5rem,4vw,2rem)] leading-none tracking-[-0.03em]">
+            What is real, and what is not
+          </h2>
+          <ul className="mt-8 border-2 border-border bg-bg-raised shadow-hard">
+            {STATUS.map((s, i) => (
+              <li
+                key={s.tag}
+                className={`flex flex-col sm:flex-row gap-4 px-5 py-5 ${
+                  i > 0 ? "border-t-2 border-border" : ""
+                }`}
+              >
+                <span
+                  className={`label shrink-0 self-start inline-flex items-center justify-center border-2 border-border px-2 py-2 sm:w-[11rem] ${s.skin}`}
+                >
+                  {s.tag}
+                </span>
+                <p className="text-sm text-fg-muted leading-relaxed">{s.body}</p>
+              </li>
+            ))}
           </ul>
         </div>
       </section>
 
-      <footer className="mx-auto max-w-5xl px-6 py-10 border-t border-border/40 text-xs text-fg-dim">
-        {BRAND.name} — {BRAND.tagline}. Built for the Midnight Buildathon.
+      <footer className="mt-auto border-t-[3px] border-border bg-bg-raised">
+        <div className="mx-auto max-w-5xl px-4 md:px-6 py-8 font-mono text-[11px] text-fg-dim">
+          {BRAND.name} — {BRAND.tagline}. Built for the Midnight Buildathon.
+        </div>
       </footer>
     </div>
   );
