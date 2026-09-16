@@ -59,14 +59,14 @@ const STATUS = [
     body: "The Compact contract, its ten circuits and their verifier keys; transaction assembly against the compiled contract; proving against a proof server; the wallet session.",
   },
   {
-    tag: "Real, in process",
+    tag: "Real, in the console",
     skin: "bg-bg-raised text-fg",
-    body: "Every circuit call the console makes. Asserts fire and public ledger state actually changes — the explorer reads it back byte for byte.",
+    body: "Every circuit call the console makes. Asserts fire and public ledger state actually changes — the explorer reads it back byte for byte. These calls return the circuit's own result; no zero-knowledge proof is generated in a console session.",
   },
   {
     tag: "Not yet",
     skin: "bg-bg-inset text-fg-dim",
-    body: "Submission to a live network. Balancing and submission need a funded wallet in a browser, and there is no headless wallet for this stack to automate it.",
+    body: "Submission to a live network. Balancing and submission need a funded wallet in the browser.",
   },
 ];
 
@@ -123,7 +123,7 @@ export function Landing() {
         <div className="mx-auto max-w-5xl px-4 md:px-6 py-14">
           <div className="border-2 border-border bg-bg-raised shadow-hard-lg">
             <div className="label bg-fg text-bg px-4 py-3">
-              Measured · npm run test:prove · not an estimate
+              Measured against a real proof server · not an estimate
             </div>
             <div className="grid sm:grid-cols-3">
               {FACTS.map((f, i) => (
@@ -143,10 +143,10 @@ export function Landing() {
               ))}
             </div>
           </div>
-          <p className="mt-5 font-mono text-[11px] text-fg-dim leading-relaxed max-w-2xl [&_code]:bg-bg-inset [&_code]:px-1">
-            These are timings from <code>npm run test:prove</code>, which assembles real
-            transactions and proves them against a <code>midnight-proof-server</code>{" "}
-            container. No part of this page is an estimate.
+          <p className="mt-5 font-mono text-[11px] text-fg-dim leading-relaxed max-w-2xl">
+            Every figure above is timed on real transactions, assembled from the compiled
+            contract and proved against a Midnight proof server. No part of this page is an
+            estimate.
           </p>
         </div>
       </section>

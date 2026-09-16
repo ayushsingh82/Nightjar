@@ -45,7 +45,7 @@ const STEPS: Step[] = [
   },
   {
     title: "Seed the agents",
-    note: "Both sellers *earn* their history: earnHistory() runs 55 real escrows for Atlas and 9 for Nomad, each one a genuine open → deliver → release and a genuine updateReputation. Nothing is handed to them.",
+    note: "Both sellers earn their history: 55 escrows for Atlas and 9 for Nomad, each one a full open → deliver → release followed by updateReputation.",
     build: () => ({ type: "seed" }),
   },
   {
@@ -136,11 +136,11 @@ export function DemoRunner({ onFinished }: { onFinished?: () => void }) {
 
   return (
     <Panel
-      title="Demo script"
+      title="Guided walkthrough"
       subtitle="badge → hire → escrow → deliver → release, then a dispute → slash"
       right={
         <Button disabled={busy || running} onClick={() => void runAll()}>
-          {running ? "Running…" : "Run the demo"}
+          {running ? "Running…" : "Run the walkthrough"}
         </Button>
       }
     >

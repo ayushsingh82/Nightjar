@@ -126,7 +126,7 @@ function PrivateLedger({ seller }: { seller: AgentView }) {
             {seller.jobs.length === 0 && (
               <tr>
                 <td colSpan={5} className={`${TD} font-mono text-fg-dim`}>
-                  No history yet — seed the demo.
+                  No history yet — run the walkthrough to build one.
                 </td>
               </tr>
             )}
@@ -245,9 +245,13 @@ function ProveBadge({ seller }: { seller: AgentView }) {
             <Row label="Disclosed value">
               <code>{String(badge.holds)}</code>
             </Row>
-            <Row label="Proven against commitment" tone="public">
+            <Row label="Checked against commitment" tone="public">
               <Hex value={badge.commitment} chars={16} />
             </Row>
+            <span className="font-mono text-[11px] text-fg-dim leading-relaxed">
+              Circuit result, checked against the on-chain commitment. No zero-knowledge proof
+              is generated in this session.
+            </span>
           </>
         )}
         <Note>

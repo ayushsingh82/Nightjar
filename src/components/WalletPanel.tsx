@@ -4,8 +4,8 @@
 //
 // The wallet session here is real: DApp Connector enumeration, the unshielded
 // address, the DUST balance the fees would come out of, and a proof-server
-// health check. What it is *not* is what drives the console tabs — see the
-// execution notice there.
+// health check. What it is *not* is what drives the console tabs: those run the
+// compiled contract directly.
 //
 // Connection state and proof-server health are printed in ink, not in the
 // reserved hues: neither of them says anything about who can see a value. The

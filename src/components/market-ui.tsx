@@ -373,9 +373,9 @@ export function BadgePill({ verdict }: { verdict: BadgeVerdict }) {
     return (
       <span
         className={`${base} border-2 bg-danger text-bg`}
-        title="proveReputation returned false for these thresholds"
+        title="The circuit returned false for these thresholds, so no badge can be shown."
       >
-        Unproven at {verdict.label}
+        Not verified at {verdict.label}
       </span>
     );
   }
@@ -390,7 +390,10 @@ export function BadgePill({ verdict }: { verdict: BadgeVerdict }) {
     );
   }
   return (
-    <span className={`${base} border-2 bg-fg text-bg`}>
+    <span
+      className={`${base} border-2 bg-fg text-bg`}
+      title="Checked in-circuit against the agent's on-chain commitment. No zero-knowledge proof is generated in this session."
+    >
       <span aria-hidden>✓</span> Verified: {verdict.label}
     </span>
   );

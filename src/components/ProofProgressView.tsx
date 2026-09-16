@@ -27,8 +27,7 @@ const PHASE_NOTE: Record<string, string> = {
 // The honest version of what used to say "blocked". Assembly and proving are
 // implemented and tested (`tx-assembler.ts`, `npm run test:prove`); what is
 // missing is a funded wallet, and there is no headless one for this stack.
-const OFF_PATH =
-  "implemented in live.ts — needs a funded wallet in a browser, which this console does not drive";
+const OFF_PATH = "needs a funded wallet in the browser — not driven from this console";
 
 function rank(phase: ProofPhase): number {
   const order: ProofPhase[] = ["idle", ...LIVE_PHASES, ...OFF_PATH_PHASES, "done"];
@@ -123,10 +122,9 @@ export function ProofProgressView({
         </p>
       )}
 
-      <p className="border-t-2 border-border px-4 py-3 font-mono text-[11px] text-fg-dim leading-relaxed [&_code]:bg-bg-inset [&_code]:px-1">
-        The two live steps run the compiled circuit in process: asserts fire and public ledger
-        state really changes. No ZK proof is generated here and nothing is submitted on chain —{" "}
-        <code>npm run test:prove</code> does that part against a real proof server.
+      <p className="border-t-2 border-border px-4 py-3 font-mono text-[11px] text-fg-dim leading-relaxed">
+        Executed against live contract state. No zero-knowledge proof is generated in this
+        session.
       </p>
     </div>
   );

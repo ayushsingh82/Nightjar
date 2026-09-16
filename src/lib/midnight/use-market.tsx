@@ -112,7 +112,7 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
               next = await post(action);
               // Deliberately overrides PHASE_LABELS.proving: no proof is
               // generated here (see EXECUTION_NOTICE in demo-market.ts).
-              return { message: "Circuit executed in-process — real ledger write, unproven" };
+              return { message: "Circuit executed — ledger updated, no proof generated" };
             },
           },
         ],
